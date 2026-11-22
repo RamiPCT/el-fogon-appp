@@ -16,10 +16,12 @@ const useEmbers = (count) => useMemo(() => Array.from({ length: count }, (_, i) 
 })), [count]);
 
 // Capas de "canto" que dan grosor al caballo mientras gira (solo existen durante el giro)
-const COIN_EDGE_LAYERS = Array.from({ length: 12 }, (_, i) => i + 1);
-const COIN_DEPTH = 0.9; // px entre capas
+const COIN_EDGE_LAYERS = Array.from({ length: 8 }, (_, i) => i + 1);
+const COIN_DEPTH = 1.3; // px entre capas
 
-// Caballo que gira en 3D como una moneda de oro al tocarlo
+// Caballo que gira en 3D como una moneda de oro al tocarlo.
+// Compatible con Safari/iPhone: durante el giro no hay filtros ni mezclas de color
+// dentro de la escena 3D (Safari la "aplanaría").
 const SpinningHorse = ({ label }) => {
   const [spinId, setSpinId] = useState(0);
   const busy = useRef(false);
@@ -32,9 +34,9 @@ const SpinningHorse = ({ label }) => {
     setSpinId(0);
   };
 
+  // El giro lo inicia la persona al tocar, por eso se permite aunque el móvil tenga "reducir movimiento"
   const spin = () => {
     if (busy.current) return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     busy.current = true;
     setSpinId(Date.now());
     clearTimeout(timer.current);
@@ -45,9 +47,11 @@ const SpinningHorse = ({ label }) => {
   const back = (COIN_EDGE_LAYERS.length + 1) * COIN_DEPTH;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={spin}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); spin(); } }}
       aria-label={label}
       className="fogon-coin-stage absolute inset-0"
     >
@@ -57,23 +61,27 @@ const SpinningHorse = ({ label }) => {
         onAnimationEnd={(e) => { if (e.animationName === 'fogon-coin-spin') { clearTimeout(timer.current); finish(); } }}
       >
         {spinning && COIN_EDGE_LAYERS.map(i => (
-          <img
+          <div
             key={i}
-            src="/assets/logo-horse.png"
-            alt=""
             aria-hidden="true"
             className="fogon-coin-edge"
-            style={{ transform: `translateZ(${-i * COIN_DEPTH}px)`, filter: `brightness(${0.5 - (i % 3) * 0.04}) saturate(1.25)` }}
+            style={{ transform: `translateZ(${-i * COIN_DEPTH}px)` }}
           />
         ))}
         {spinning && (
-          <img src="/assets/logo-horse.png" alt="" aria-hidden="true" className="fogon-coin-face" style={{ transform: `translateZ(${-back}px) rotateY(180deg)` }} />
+          <img src="/assets/logo-horse.png" alt="" aria-hidden="true" draggable="false" className="fogon-coin-face" style={{ transform: `translateZ(${-back}px) rotateY(180deg)` }} />
         )}
-        <img src="/assets/logo-horse.png" alt="El Fogón" className="fogon-coin-face drop-shadow-[0_10px_30px_rgba(200,164,93,0.35)]" style={spinning ? { transform: 'translateZ(0.5px)' } : undefined} />
-        <div className="fogon-shimmer fogon-coin-face" aria-hidden="true" style={spinning ? { transform: 'translateZ(0.8px)' } : undefined} />
+        <img
+          src="/assets/logo-horse.png"
+          alt="El Fogón"
+          draggable="false"
+          className={`fogon-coin-face ${spinning ? '' : 'drop-shadow-[0_10px_30px_rgba(200,164,93,0.35)]'}`}
+          style={spinning ? { transform: 'translateZ(0.5px)' } : undefined}
+        />
+        {!spinning && <div className="fogon-shimmer fogon-coin-face" aria-hidden="true" />}
         {spinning && <div className="fogon-coin-glint fogon-coin-face" aria-hidden="true" style={{ transform: 'translateZ(1px)' }} />}
       </div>
-    </button>
+    </div>
   );
 };
 

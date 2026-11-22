@@ -151,7 +151,11 @@ html {
 
 /* ---------- Caballo que gira en 3D (portada) ---------- */
 .fogon-coin-stage {
+  -webkit-perspective: 900px;
   perspective: 900px;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
   background: none;
   border: 0;
   padding: 0;
@@ -163,10 +167,12 @@ html {
 .fogon-coin {
   position: absolute;
   inset: 0;
+  -webkit-transform-style: preserve-3d;
   transform-style: preserve-3d;
 }
 .fogon-coin.is-spinning {
   will-change: transform;
+  -webkit-animation: fogon-coin-spin 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
   animation: fogon-coin-spin 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
 }
 .fogon-coin-face,
@@ -177,8 +183,21 @@ html {
   height: 100%;
   object-fit: contain;
 }
-.fogon-coin-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.fogon-coin-edge { backface-visibility: visible; }
+.fogon-coin-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; -webkit-user-drag: none; }
+/* Canto de bronce recortado con la silueta del caballo (sin filtros: compatible con Safari) */
+.fogon-coin-edge {
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+  background: linear-gradient(160deg, #9a7634 0%, #6b4f1f 45%, #3d2b10 100%);
+  -webkit-mask-image: url('/assets/logo-horse.png');
+  mask-image: url('/assets/logo-horse.png');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
 
 @keyframes fogon-coin-spin {
   0%   { transform: rotateY(0deg) translateY(0) scale(1); }
@@ -197,9 +216,9 @@ html {
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
   mask-position: center;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 250, 230, 0.95) 48%, rgba(255, 236, 180, 0.6) 52%, transparent 70%);
+  background: linear-gradient(100deg, transparent 32%, rgba(255, 248, 225, 0.75) 48%, rgba(255, 232, 170, 0.45) 53%, transparent 68%);
   background-size: 300% 100%;
-  mix-blend-mode: screen;
+  -webkit-animation: fogon-coin-glint 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
   animation: fogon-coin-glint 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
 }
 @keyframes fogon-coin-glint {
