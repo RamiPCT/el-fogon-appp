@@ -207,6 +207,7 @@ class Database {
     d.orders = d.orders || [];
     d.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
     if (!d.floor || !d.floor.cols) d.floor = defaultFloor(d.tables);
+    if (!Array.isArray(d.sessions)) d.sessions = [];
 
     d.products.forEach(p => {
       if (!Array.isArray(p.allergens)) p.allergens = [];
@@ -229,9 +230,17 @@ class Database {
 
   // Escritura atómica: si el proceso se corta a mitad, el archivo anterior queda intacto
   save() {
+    const json = JSON.stringify(this.data, null, 2);
     const tmp = `${DB_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf-8');
-    fs.renameSync(tmp, DB_FILE);
+    try {
+      fs.writeFileSync(tmp, json, 'utf-8');
+      fs.renameSync(tmp, DB_FILE);
+    } catch (err) {
+      // En Windows el renombrado puede fallar si el antivirus o un editor tiene el archivo abierto:
+      // se escribe directamente para no perder el pedido o la reserva.
+      fs.writeFileSync(DB_FILE, json, 'utf-8');
+      try { fs.unlinkSync(tmp); } catch (_) { /* puede no existir */ }
+    }
   }
 
   getTables() {
@@ -388,6 +397,15 @@ class Database {
 
   getSettings() {
     return this.data.settings;
+  }
+
+  getSessions() {
+    return this.data.sessions || [];
+  }
+
+  setSessions(list) {
+    this.data.sessions = list;
+    this.save();
   }
 
   getFloor() {

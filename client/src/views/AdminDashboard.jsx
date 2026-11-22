@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocket } from '../context/SocketContext';
 import { Settings, Users, Calendar, Sliders, Save, Plus, Trash2, Phone, MessageSquare, Printer, Check, X, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Clock, Maximize2, ShieldAlert } from 'lucide-react';
 import { DeleteTableModal } from '../components/DeleteTableModal';
 import { FloorPlan, ELEMENT_TYPES } from '../components/FloorPlan';
-import { api } from '../utils/api';
+import { api, getStaffToken } from '../utils/api';
 import { todayStr, prettyDate } from '../utils/time';
 import { formatPrice } from '../utils/formatters';
 import { onImgError } from '../utils/images';
@@ -27,9 +27,20 @@ export const AdminDashboard = () => {
   const [selected, setSelected] = useState(null); // { kind: 'table'|'element', id }
   const [editMode, setEditMode] = useState('move'); // 'move' | 'paint'
   const [zoom, setZoom] = useState(1);
-  const [layoutDirty, setLayoutDirty] = useState(false);
-  const dirtyRef = React.useRef(false);
+  const [layoutDirty, setLayoutDirtyState] = useState(false);
+  const dirtyRef = useRef(false);
   dirtyRef.current = layoutDirty;
+  const editVersion = useRef(0);       // aumenta con cada cambio del plano
+  const setLayoutDirty = (v) => {
+    if (v) editVersion.current += 1;
+    setLayoutDirtyState(v);
+  };
+  const [saveState, setSaveState] = useState('saved'); // 'saved' | 'pending' | 'saving' | 'error'
+  const [saveError, setSaveError] = useState('');
+  const [loadErrors, setLoadErrors] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const tablesRef = useRef([]);
+  const floorRef = useRef(null);
   
   // Estado local para programar reserva en mesa seleccionada
   const [scheduleDate, setScheduleDate] = useState(todayStr());
@@ -75,37 +86,120 @@ export const AdminDashboard = () => {
     }
   };
 
+  // Plano de respaldo que abarca todas las mesas (por si el servidor no devuelve el plano)
+  const fallbackFloor = (tbls) => {
+    const maxX = tbls.reduce((m, t) => Math.max(m, (t.x || 0) + (t.width || 60)), 360);
+    const maxY = tbls.reduce((m, t) => Math.max(m, (t.y || 0) + (t.height || 60)), 360);
+    return { cols: Math.min(80, Math.ceil((maxX + 20) / 20)), rows: Math.min(80, Math.ceil((maxY + 20) / 20)), cell: 20, voids: [], elements: [] };
+  };
+
+  // Carga cada dato por separado: si uno falla, el resto se muestra igual
   const fetchData = async () => {
-    try {
-      const [tblRes, resRes, setRes, menuRes, floorRes] = await Promise.all([
-        api('/api/tables'),
-        api('/api/reservations'),
-        api('/api/settings'),
-        api('/api/menu'),
-        api('/api/floor')
-      ]);
+    const names = ['mesas', 'reservas', 'ajustes', 'carta', 'plano'];
+    const results = await Promise.allSettled([
+      api('/api/tables'),
+      api('/api/reservations'),
+      api('/api/settings'),
+      api('/api/menu'),
+      api('/api/floor')
+    ]);
+    const [tblR, resR, setR, menuR, floorR] = results;
+    const errors = results
+      .map((r, i) => (r.status === 'rejected' ? `${names[i]}: ${r.reason?.message || 'error'}` : null))
+      .filter(Boolean);
+    setLoadErrors(errors);
+
+    if (tblR.status === 'fulfilled' && Array.isArray(tblR.value)) {
+      const tblRes = tblR.value;
       if (dirtyRef.current) {
-        // Hay cambios del plano sin publicar: solo se actualizan estados y reservas
+        // Hay cambios del plano pendientes de guardar: solo se actualizan estados y reservas
         setTables(prev => prev.map(t => {
           const fresh = tblRes.find(x => x.id === t.id);
           return fresh ? { ...t, status: fresh.status, nextReservation: fresh.nextReservation } : t;
         }));
       } else {
-        setFloor(floorRes);
         setTables(tblRes);
+        const fl = floorR.status === 'fulfilled' && floorR.value && floorR.value.cols ? floorR.value : fallbackFloor(tblRes);
+        setFloor(fl);
       }
-      if (tblRes.length > 0) {
-        setSelectedTableId(prev => (prev && tblRes.some(t => t.id === prev)) ? prev : tblRes[0].id);
-      }
-      setReservations(resRes);
-      setSettings(setRes);
-      setProducts(menuRes.products || []);
-      setCategories(menuRes.categories || []);
-      if (Array.isArray(menuRes.allergens)) setAllergenKeys(menuRes.allergens);
-    } catch (err) {
-      console.error('Error al cargar datos de admin:', err);
+    } else if (!dirtyRef.current && floorR.status === 'fulfilled' && floorR.value?.cols) {
+      setFloor(floorR.value);
     }
+    if (resR.status === 'fulfilled' && Array.isArray(resR.value)) setReservations(resR.value);
+    if (setR.status === 'fulfilled' && setR.value) setSettings(setR.value);
+    if (menuR.status === 'fulfilled' && menuR.value) {
+      setProducts(menuR.value.products || []);
+      setCategories(menuR.value.categories || []);
+      if (Array.isArray(menuR.value.allergens)) setAllergenKeys(menuR.value.allergens);
+    }
+    setLoaded(true);
   };
+
+  tablesRef.current = tables;
+  floorRef.current = floor;
+
+  const layoutPayload = () => ({
+    positions: tablesRef.current.map(t => ({
+      id: t.id,
+      number: t.number,
+      sectorId: t.sectorId || 'sec-salon',
+      x: t.x || 0,
+      y: t.y || 0,
+      width: t.width || 60,
+      height: t.height || 60,
+      capacity: t.capacity || 4,
+      shape: t.shape || 'rect',
+      status: t.status || 'AVAILABLE'
+    })),
+    floor: floorRef.current
+  });
+
+  // Guardado del plano (automático tras cada cambio, o manual con el botón)
+  const saveLayout = useCallback(async () => {
+    if (!floorRef.current) return;
+    const version = editVersion.current;
+    setSaveState('saving');
+    try {
+      const data = await api('/api/tables/layout', { method: 'POST', body: layoutPayload() });
+      if (editVersion.current === version) {
+        setLayoutDirtyState(false);
+        if (data.floor) setFloor(data.floor);
+        setSaveState('saved');
+      } else {
+        setSaveState('pending');
+      }
+      setSaveError('');
+    } catch (err) {
+      setSaveState('error');
+      setSaveError(err.message);
+    }
+  }, []);
+
+  // Autoguardado: 900 ms después del último cambio
+  useEffect(() => {
+    if (!layoutDirty) return;
+    setSaveState(s => (s === 'saving' ? s : 'pending'));
+    const timer = setTimeout(saveLayout, 900);
+    return () => clearTimeout(timer);
+  }, [tables, floor, layoutDirty, saveLayout]);
+
+  // Si se sale del panel o se cierra la pestaña con cambios pendientes, se guardan igual
+  useEffect(() => {
+    const flush = () => {
+      if (!dirtyRef.current || !floorRef.current) return;
+      const token = getStaffToken();
+      try {
+        fetch('/api/tables/layout', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(layoutPayload())
+        });
+      } catch (_) { /* nada que hacer */ }
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => { window.removeEventListener('beforeunload', flush); flush(); };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -123,13 +217,20 @@ export const AdminDashboard = () => {
       }));
     }).catch(() => {});
     const onReservation = () => { refreshReservations(); refreshTables(); };
+    // Si el plano se cambia desde otro dispositivo y aquí no hay cambios pendientes, se sincroniza
+    const onLayout = () => { if (!dirtyRef.current) fetchData(); };
+    const onConnect = () => { if (!dirtyRef.current) fetchData(); };
     socket.on('reservation:new', onReservation);
     socket.on('reservation:cancelled', onReservation);
     socket.on('table:status_update', refreshTables);
+    socket.on('floor:update', onLayout);
+    socket.on('connect', onConnect);
     return () => {
       socket.off('reservation:new', onReservation);
       socket.off('reservation:cancelled', onReservation);
       socket.off('table:status_update', refreshTables);
+      socket.off('floor:update', onLayout);
+      socket.off('connect', onConnect);
     };
   }, [socket]);
 
@@ -396,32 +497,7 @@ export const AdminDashboard = () => {
     setLayoutDirty(true);
   };
 
-  const handleSaveLayout = async () => {
-    setIsSaving(true);
-    try {
-      const positions = tables.map(t => ({
-        id: t.id,
-        number: t.number,
-        sectorId: t.sectorId || 'sec-salon',
-        x: t.x || 0,
-        y: t.y || 0,
-        width: t.width || 60,
-        height: t.height || 60,
-        capacity: t.capacity || 4,
-        shape: t.shape || 'rect',
-        status: t.status || 'AVAILABLE'
-      }));
-
-      const data = await api('/api/tables/layout', { method: 'POST', body: { positions, floor } });
-      if (data.floor) setFloor(data.floor);
-      setLayoutDirty(false);
-      alert('✅ Plano publicado. Los clientes ya lo ven así.');
-    } catch (err) {
-      alert(`Error al guardar el plano: ${err.message}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const handleSaveLayout = () => saveLayout();
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -499,29 +575,48 @@ export const AdminDashboard = () => {
         </div>
       </div>
 
+      {loadErrors.length > 0 && (
+        <div className="bg-red-950/50 border border-red-900 rounded-2xl p-3 text-xs text-red-100 flex flex-wrap items-center justify-between gap-2" role="alert">
+          <span>No se pudo cargar parte de la información ({loadErrors.join(' · ')}). Si acabas de reiniciar el servidor, recarga la página.</span>
+          <button onClick={fetchData} className="px-3 py-1.5 rounded-lg bg-white text-black font-bold">Reintentar</button>
+        </div>
+      )}
+
       {/* PESTAÑA 1: EDITOR VISUAL 2D COMPLETO */}
       {activeTab === 'visual_map' && (
         <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-3.5 space-y-3.5 shadow-xl">
           
           <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-stone-800">
             <div>
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] flex items-center gap-2">
-                Editor del plano
-                {layoutDirty && <span className="text-[9px] font-body font-bold bg-amber-500 text-black px-1.5 py-0.5 rounded-full">Sin publicar</span>}
-              </h3>
+              <h3 className="font-display text-sm font-bold text-[#C8A45D]">Editor del plano</h3>
               <p className="text-[10px] text-stone-400">
-                Arrastra mesas y elementos con el dedo o el ratón. La esquina azul cambia el tamaño. Pulsa «Publicar» para que lo vean los clientes.
+                Arrastra mesas y elementos con el dedo o el ratón. La esquina azul cambia el tamaño. Los cambios se guardan solos y los clientes los ven al momento.
               </p>
             </div>
-            <button
-              onClick={handleSaveLayout}
-              disabled={isSaving}
-              className="px-4 py-2 bg-[#C8A45D] hover:bg-amber-400 text-[#121212] font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-lg disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Guardando…' : 'Publicar plano'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                saveState === 'saved' ? 'bg-[#14281D] border-green-800 text-green-300'
+                  : saveState === 'error' ? 'bg-red-950 border-red-800 text-red-300'
+                  : 'bg-amber-950 border-amber-700 text-amber-300'
+              }`} role="status" aria-live="polite">
+                {saveState === 'saved' ? '✓ Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? '⚠ No guardado' : 'Cambios pendientes…'}
+              </span>
+              <button
+                onClick={handleSaveLayout}
+                disabled={saveState === 'saving'}
+                className="px-3 py-1.5 bg-[#C8A45D] hover:bg-amber-400 text-[#121212] font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-lg disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Guardar ahora</span>
+              </button>
+            </div>
           </div>
+
+          {saveState === 'error' && (
+            <p className="text-[11px] text-red-200 bg-red-950/50 border border-red-900 rounded-xl px-3 py-2" role="alert">
+              No se pudo guardar el plano: {saveError}. Corrígelo y se guardará solo.
+            </p>
+          )}
 
           {/* Modo de edición */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-[#121212] rounded-xl border border-stone-800 text-xs font-bold">
@@ -586,6 +681,11 @@ export const AdminDashboard = () => {
           </div>
 
           {/* LIENZO DEL PLANO */}
+          {loaded && tables.length === 0 && (
+            <p className="text-[11px] text-stone-300 bg-[#121212] border border-stone-800 rounded-xl px-3 py-2">
+              Todavía no hay mesas. Pulsa «+ Mesa», «+ Mesa redonda» o «+ Taburete» para empezar.
+            </p>
+          )}
           {floor ? (
             <FloorPlan
               floor={floor}

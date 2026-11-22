@@ -14,6 +14,11 @@ const time = require('./time');
 // --------------------------------------------------------------------------
 const IS_PROD = process.env.NODE_ENV === 'production';
 auth.setStoredHashGetter(() => db.getSettings().staffPinHash || null);
+auth.setSessionStore({ load: () => db.getSessions(), save: (list) => db.setSessions(list) });
+
+// Un error inesperado se registra pero no tumba el servidor en pleno servicio
+process.on('unhandledRejection', (err) => console.error('⚠️  Promesa rechazada sin gestionar:', err));
+process.on('uncaughtException', (err) => console.error('⚠️  Error inesperado:', err));
 if (IS_PROD && auth.pinSource() === 'none') {
   console.error('❌ No hay PIN de personal. Define la variable de entorno STAFF_PIN antes de arrancar en producción.');
   process.exit(1);
@@ -692,6 +697,15 @@ app.post('/api/printer/reprint/:orderId', auth.requireStaff, async (req, res) =>
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
+
+// Errores: JSON mal formado, cuerpo demasiado grande o fallos internos -> respuesta clara en JSON
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Datos no válidos' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Datos demasiado grandes' });
+  console.error('Error en', req.method, req.url, err);
+  res.status(500).json({ error: 'Error interno del servidor. Inténtalo de nuevo.' });
+});
 
 // --------------------------------------------------------------------------
 // WEBSOCKETS

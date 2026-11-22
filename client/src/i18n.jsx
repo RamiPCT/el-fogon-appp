@@ -236,6 +236,10 @@ const DICT = {
     'menu.notesPh': "Ej.: sin cebolla, poco hecho…",
     'cart.removedSoldOut': "{name} se ha agotado y lo hemos quitado de tu pedido.",
     'cart.priceUpdated': "Se han actualizado algunos precios de tu pedido.",
+    'plan.guests_one': '1 persona',
+    'book.capacity_one': 'Hasta 1 persona',
+    'occ.capacity_one': 'Capacidad: 1 persona',
+    'buffer.table_one': 'Mesa {n} · 1 persona',
     'common.close': 'Cerrar',
     'common.back': 'Volver'
   },
@@ -458,6 +462,10 @@ const DICT = {
     'menu.notesPh': "e.g. no onion, rare…",
     'cart.removedSoldOut': "{name} has sold out and was removed from your order.",
     'cart.priceUpdated': "Some prices in your order have been updated.",
+    'plan.guests_one': '1 guest',
+    'book.capacity_one': 'Up to 1 guest',
+    'occ.capacity_one': 'Seats 1',
+    'buffer.table_one': 'Table {n} · 1 guest',
     'common.close': 'Close',
     'common.back': 'Back'
   }
@@ -484,7 +492,11 @@ export const I18nProvider = ({ children }) => {
 
   const value = useMemo(() => {
     const t = (key, vars = {}) => {
-      const raw = DICT[lang][key] ?? DICT.es[key] ?? key;
+      // Singular automático: si hay una variante "_one" y la cantidad es 1 ("1 persona", no "1 personas")
+      const count = vars.c !== undefined ? vars.c : vars.n;
+      const oneKey = `${key}_one`;
+      const useOne = Number(count) === 1 && typeof count !== 'string' && (DICT[lang][oneKey] || DICT.es[oneKey]);
+      const raw = (useOne ? (DICT[lang][oneKey] ?? DICT.es[oneKey]) : null) ?? DICT[lang][key] ?? DICT.es[key] ?? key;
       return raw.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{${k}}`));
     };
     // Campo traducido de un objeto de datos (ej: product.name / product.name_en)

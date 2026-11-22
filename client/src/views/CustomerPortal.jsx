@@ -270,9 +270,9 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
 
       {/* ================= HOJA INFERIOR DE LA MESA ELEGIDA ================= */}
       <div className="fixed bottom-0 inset-x-0 z-40 pointer-events-none">
-        <div className="max-w-md mx-auto px-3 pointer-events-auto">
+        <div className="max-w-md mx-auto px-3">
           {selected ? (
-            <div key={selected.id} className="fogon-sheet bg-[#1A1A1A]/95 backdrop-blur border border-[#C8A45D]/60 border-b-0 rounded-t-3xl p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.6)] space-y-3 fogon-safe-bottom">
+            <div key={selected.id} className="pointer-events-auto fogon-sheet bg-[#1A1A1A]/95 backdrop-blur border border-[#C8A45D]/60 border-b-0 rounded-t-3xl p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.6)] space-y-3 fogon-safe-bottom">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[10px] text-stone-400 uppercase tracking-wider">{t('plan.selected')}</p>
@@ -327,7 +327,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
               )}
             </div>
           ) : (
-            <div className="mb-4 mx-auto w-fit bg-black/70 backdrop-blur border border-stone-700 rounded-full px-4 py-2 text-[11px] text-stone-300 shadow-xl fogon-safe-bottom">
+            <div className="pointer-events-none mb-4 mx-auto w-fit bg-black/70 backdrop-blur border border-stone-700 rounded-full px-4 py-2 text-[11px] text-stone-300 shadow-xl fogon-safe-bottom">
               👆 {t('plan.selectPrompt')}
             </div>
           )}
