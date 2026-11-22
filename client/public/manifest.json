@@ -1,0 +1,41 @@
+{
+  "name": "El Fogón - Bar & Picoteo de Autor",
+  "short_name": "El Fogón",
+  "description": "Carta, reservas con plano interactivo y pedidos desde la mesa en El Fogón (Alicante).",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "categories": [
+    "food",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/icon-512.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo-horse.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Reservar mesa",
+      "short_name": "Reservar",
+      "url": "/reservar"
+    },
+    {
+      "name": "Carta",
+      "short_name": "Carta",
+      "url": "/carta"
+    }
+  ],
+  "lang": "es"
+}

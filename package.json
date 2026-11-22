@@ -1,0 +1,36 @@
+{
+  "name": "el-fogon-app",
+  "version": "1.0.0",
+  "description": "Web y sistema de sala para El Fogón (Alicante): portada, carta, reservas por WhatsApp, pedidos por QR, KDS y panel del dueño",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "server": "node --env-file-if-exists=.env server/index.js",
+    "client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "build:deploy": "npm ci --prefix client --include=dev && npm run build --prefix client",
+    "dev": "node -e \"const { spawn } = require('child_process'); spawn('node', ['--env-file-if-exists=.env', 'server/index.js'], { stdio: 'inherit', shell: true }); spawn('npm', ['run', 'dev', '--prefix', 'client'], { stdio: 'inherit', shell: true });\""
+  },
+  "keywords": [
+    "restaurant",
+    "bar",
+    "qr-menu",
+    "interactive-map",
+    "thermal-printer",
+    "kds",
+    "el-fogon"
+  ],
+  "author": "CÉLERE // Digital Studio",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
+    "uuid": "^14.0.3"
+  },
+  "engines": {
+    "node": ">=22.9"
+  },
+  "private": true
+}

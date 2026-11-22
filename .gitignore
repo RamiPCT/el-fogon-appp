@@ -1,0 +1,15 @@
+node_modules/
+client/node_modules/
+client/dist/
+.env
+server/data/*.tmp
+server/data/*.corrupto-*.json
+_backup_*/
+
+# Datos reales del local (reservas, teléfonos): no se suben al repositorio.
+# Si falta, el servidor crea una base de datos de ejemplo al arrancar.
+server/data/db.json
+
+*.log
+.DS_Store
+Thumbs.db

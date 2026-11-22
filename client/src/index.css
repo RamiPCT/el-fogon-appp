@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+@theme {
+  --color-fogon-dark: #121212;
+  --color-fogon-card: #1A1A1A;
+  --color-fogon-gold: #C8A45D;
+  --color-fogon-gold-light: #E6C687;
+  --color-fogon-wine: #5A1826;
+  --color-fogon-forest: #14281D;
+  --color-fogon-cream: #F4EFE6;
+
+  --font-display: 'Cinzel', serif;
+  --font-script: 'Great Vibes', cursive;
+  --font-body: 'Montserrat', sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #FFFDF8 0%, #C8A45D 50%, #9E7D36 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-border {
+  border: 1px solid rgba(200, 164, 93, 0.35);
+}
+
+.gold-border-glow {
+  border: 1px solid #C8A45D;
+  box-shadow: 0 0 15px rgba(200, 164, 93, 0.25);
+}
+
+.wine-border-glow {
+  border: 1px solid #5A1826;
+  box-shadow: 0 0 15px rgba(90, 24, 38, 0.35);
+}
+
+/* Foco visible para teclado (accesibilidad) */
+:focus-visible {
+  outline: 2px solid #C8A45D;
+  outline-offset: 2px;
+}
+
+/* ---------- Portada: brasas, brillo y entradas ---------- */
+.fogon-ember {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #FFD58A 0%, #F08A24 55%, rgba(240, 90, 20, 0) 100%);
+  box-shadow: 0 0 8px rgba(255, 150, 50, 0.8);
+  opacity: 0;
+  animation-name: fogon-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes fogon-rise {
+  0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  10%  { opacity: 0.9; }
+  70%  { opacity: 0.6; }
+  100% { transform: translate3d(var(--drift, 0px), var(--rise, -420px), 0) scale(0.3); opacity: 0; }
+}
+
+/* Barrido de brillo recortado con la silueta del caballo */
+.fogon-shimmer {
+  -webkit-mask-image: url('/assets/logo-horse.png');
+  mask-image: url('/assets/logo-horse.png');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 248, 220, 0.85) 50%, transparent 65%);
+  background-size: 250% 100%;
+  background-position: 150% 0;
+  mix-blend-mode: overlay;
+  animation: fogon-sweep 4.5s ease-in-out 1s infinite;
+}
+
+@keyframes fogon-sweep {
+  0%   { background-position: 150% 0; }
+  45%  { background-position: -50% 0; }
+  100% { background-position: -50% 0; }
+}
+
+.fogon-glow {
+  animation: fogon-breathe 5s ease-in-out infinite;
+}
+
+@keyframes fogon-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
+.fogon-fade-up {
+  opacity: 0;
+  animation: fogon-fade-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+
+@keyframes fogon-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fogon-no-scrollbar {
+  scrollbar-width: none;
+}
+.fogon-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Aparición suave de tarjetas y hojas inferiores */
+.fogon-pop {
+  animation: fogon-pop 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes fogon-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.fogon-sheet {
+  animation: fogon-sheet 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes fogon-sheet {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+/* Pulso para la mesa seleccionada y avisos */
+.fogon-pulse-ring {
+  box-shadow: 0 0 0 0 rgba(200, 164, 93, 0.6);
+  animation: fogon-ring 1.8s ease-out infinite;
+}
+@keyframes fogon-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(200, 164, 93, 0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(200, 164, 93, 0); }
+}
+/* Textura de suelo del salón */
+.fogon-floor {
+  background-color: #101010;
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(20, 40, 29, 0.55), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 2px, transparent 2px 46px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 23px);
+}
+.fogon-safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* ---------- Caballo que gira en 3D (portada) ---------- */
+.fogon-coin-stage {
+  perspective: 900px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline-offset: 6px;
+  border-radius: 9999px;
+}
+.fogon-coin {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+.fogon-coin.is-spinning {
+  will-change: transform;
+  animation: fogon-coin-spin 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
+}
+.fogon-coin-face,
+.fogon-coin-edge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.fogon-coin-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.fogon-coin-edge { backface-visibility: visible; }
+
+@keyframes fogon-coin-spin {
+  0%   { transform: rotateY(0deg) translateY(0) scale(1); }
+  12%  { transform: rotateY(-22deg) translateY(0) scale(0.98); }
+  45%  { transform: rotateY(380deg) translateY(-8px) scale(1.05); }
+  100% { transform: rotateY(720deg) translateY(0) scale(1); }
+}
+
+/* Destello de luz que recorre el metal durante el giro */
+.fogon-coin-glint {
+  -webkit-mask-image: url('/assets/logo-horse.png');
+  mask-image: url('/assets/logo-horse.png');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 250, 230, 0.95) 48%, rgba(255, 236, 180, 0.6) 52%, transparent 70%);
+  background-size: 300% 100%;
+  mix-blend-mode: screen;
+  animation: fogon-coin-glint 1.7s cubic-bezier(0.25, 0.85, 0.3, 1) both;
+}
+@keyframes fogon-coin-glint {
+  0%   { background-position: 160% 0; opacity: 0; }
+  15%  { opacity: 0.9; }
+  40%  { background-position: -60% 0; opacity: 1; }
+  41%  { background-position: 160% 0; }
+  85%  { background-position: -60% 0; opacity: 0.8; }
+  100% { background-position: -60% 0; opacity: 0; }
+}
+
+/* Respetar a quien prefiere menos movimiento */
+@media (prefers-reduced-motion: reduce) {
+  .fogon-ember, .fogon-shimmer { display: none; }
+  .fogon-glow { animation: none; }
+  .fogon-fade-up { animation: none; opacity: 1; }
+  .fogon-pop, .fogon-sheet, .fogon-pulse-ring { animation: none; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* Custom scrollbar para estilo dark luxury */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121212;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2A2A2A;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C8A45D;
+}
