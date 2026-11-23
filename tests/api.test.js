@@ -219,6 +219,27 @@ test('empleados: alta, acceso con usuario y permisos por rol en el servidor', as
   assert.equal((await man('PUT', '/api/settings', { restaurantName: 'x' })).status, 403);
 });
 
+test('camarero: toma pedidos en la comandera pero no ve teléfonos ni escribe a clientes', async () => {
+  const tables = (await call('GET', '/api/tables', undefined, false)).data;
+  const t = tables.find(x => x.shape !== 'bar_stool');
+  const menu = (await call('GET', '/api/menu', undefined, false)).data;
+  const tom = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date(Date.now() + 60 * 3600e3));
+  await call('POST', '/api/reservations', { tableId: t.id, customerName: 'Cliente Tel', customerPhone: '611222333', date: tom, startTime: '13:00', guests: 2, privacyAccepted: true }, false);
+
+  const w = as((await loginAs('leo', 'secreta1')).token);
+  const resW = (await w('GET', '/api/reservations')).data;
+  assert.ok(resW.length > 0 && resW.every(r => r.customerPhone === undefined), 'el camarero no recibe teléfonos');
+  const m = as((await loginAs('marta', 'secreta1')).token);
+  assert.ok((await m('GET', '/api/reservations')).data.some(r => r.customerPhone === '611222333'), 'el encargado sí');
+
+  const o = await w('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: menu.products[0].id, quantity: 2 }], notes: 'sin sal' });
+  assert.equal(o.status, 201);
+  assert.equal(o.data.order.origin, 'pos');
+  assert.equal(o.data.order.createdBy.name, 'Leo');
+  const k = as((await loginAs('cocina', 'secreta1')).token);
+  assert.equal((await k('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: menu.products[0].id }] })).status, 403, 'cocina no toma pedidos');
+});
+
 test('cambio de estado de comanda queda registrado con el empleado', async () => {
   const tables = (await call('GET', '/api/tables', undefined, false)).data;
   const menu = (await call('GET', '/api/menu', undefined, false)).data;

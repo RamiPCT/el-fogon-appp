@@ -631,6 +631,9 @@ app.post('/api/orders', orderLimiter, auth.optionalStaff, (req, res) => {
     const tbl = db.getTable(str(String(tableNumber ?? ''), 10)) || db.getTable(str(req.body?.tableId, 40));
     if (!tbl) return res.status(400).json({ error: 'Mesa no válida' });
     if (!tableAccess(req, tbl)) return denyTable(res);
+    if (req.isStaff && !staffMod.can(req.staff.role, 'orders.create')) {
+      return res.status(403).json({ error: 'Tu usuario no tiene permiso para tomar pedidos.' });
+    }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'El pedido debe incluir al menos un producto' });
     }
@@ -705,11 +708,14 @@ app.patch('/api/orders/:id/status', P('orders.status'), (req, res) => {
 // --------------------------------------------------------------------------
 // RESERVAS
 // --------------------------------------------------------------------------
+// Sin permiso de contacto (camareros) no se envían teléfonos: no pueden llamar ni escribir a clientes
+const withoutContact = (r) => { const { customerPhone, ...rest } = r; return rest; };
+
 app.get('/api/reservations', P('reservations.manage'), (req, res) => {
   const list = [...db.getReservations()].sort((a, b) =>
     `${b.date || ''} ${b.startTime || ''}`.localeCompare(`${a.date || ''} ${a.startTime || ''}`)
   );
-  res.json(list);
+  res.json(staffMod.can(req.staff.role, 'customers.contact') ? list : list.map(withoutContact));
 });
 
 // Datos mínimos para la página de cancelación (el id es secreto y llega por WhatsApp)
@@ -790,7 +796,8 @@ app.post('/api/reservations', reservationLimiter, auth.optionalStaff, (req, res)
   db.addReservation(reservation);
   audit(req, 'reservation.create', { entity: 'reservation', entityId: reservation.id, after: { tableNumber: tbl.number, date, startTime, guests, source: reservation.source } });
   broadcastTable(tbl);
-  io.to('staff').emit('reservation:new', reservation);
+  // El aviso en tiempo real va sin teléfono (lo ve todo el equipo); el teléfono está en Reservas para quien tenga permiso
+  io.to('staff').emit('reservation:new', withoutContact(reservation));
 
   // Mensaje de WhatsApp para el encargado
   const shareLink = `${publicBaseUrl(req)}/cancelar/${reservation.id}`;

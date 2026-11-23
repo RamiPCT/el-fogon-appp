@@ -13,6 +13,7 @@ import { ReservationAlerts } from '../components/ReservationAlerts';
 import { TeamTab } from '../components/admin/TeamTab';
 import { AuditTab } from '../components/admin/AuditTab';
 import { QrSection } from '../components/admin/QrSection';
+import { ComanderaTab } from '../components/admin/ComanderaTab';
 import { useStaff, ROLE_LABELS } from '../hooks/useStaff';
 import { onImgError } from '../utils/images';
 
@@ -22,7 +23,9 @@ export const AdminDashboard = () => {
   const { staff: me, can } = useStaff();
   // Pestañas según los permisos del usuario (el servidor los vuelve a comprobar en cada acción)
   const TABS = [
+    { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && !can('floor.manage') },
     { id: 'visual_map', label: '🗺️ Plano', show: can('floor.manage') },
+    { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && can('floor.manage') },
     { id: 'reservations', label: '📅 Reservas', show: can('reservations.manage') },
     { id: 'menu', label: '🍽️ Carta', show: can('menu.manage') || can('menu.availability') },
     { id: 'team', label: '👥 Equipo', show: can('staff.manage') },
@@ -500,7 +503,7 @@ export const AdminDashboard = () => {
 
         {/* Pestañas según permisos */}
         {TABS.length > 0 && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
+          <div className="grid grid-cols-3 sm:grid-cols-7 gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
             {TABS.map(tabDef => (
               <button
                 key={tabDef.id}
@@ -983,6 +986,9 @@ export const AdminDashboard = () => {
       {activeTab === 'menu' && (
         <MenuTab products={products} setProducts={setProducts} categories={categories} setCategories={setCategories} allergenKeys={allergenKeys} canManage={can('menu.manage')} />
       )}
+
+      {/* PESTAÑA: COMANDERA (camareros) */}
+      {activeTab === 'comandera' && <ComanderaTab tables={tables} products={products} categories={categories} />}
 
       {/* PESTAÑA: EQUIPO */}
       {activeTab === 'team' && <TeamTab me={me} />}

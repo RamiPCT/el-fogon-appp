@@ -19,6 +19,8 @@ const PERMISSIONS = {
   'menu.manage':         ['admin', 'manager'],      // precios, fotos, altas y bajas
   'menu.availability':   ['admin', 'manager', 'waiter', 'kitchen', 'bar'], // marcar agotado
   'reservations.manage': ['admin', 'manager', 'waiter'],
+  'customers.contact':   ['admin', 'manager'],      // ver teléfonos y escribir por WhatsApp a clientes
+  'orders.create':       ['admin', 'manager', 'waiter'], // comandera: tomar pedidos en mesa
   'tables.status':       ['admin', 'manager', 'waiter'],
   'orders.view':         ['admin', 'manager', 'waiter', 'kitchen', 'bar'],
   'orders.status':       ['admin', 'manager', 'waiter', 'kitchen', 'bar'],
