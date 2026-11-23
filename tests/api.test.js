@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 
 const SERVER = path.join(__dirname, '..', 'server', 'index.js');
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fogon-test-'));
@@ -189,4 +190,50 @@ test('si el archivo de datos se daña, se recupera desde la copia', async () => 
   await start();
   const tables = (await call('GET', '/api/tables', undefined, false)).data;
   assert.ok(Array.isArray(tables) && tables.length > 0);
+});
+
+test('impresora: desactivada, sin conexión y enviada se distinguen', async () => {
+  const settings = (await call('GET', '/api/settings')).data;
+  await call('PUT', '/api/settings', { ...settings, printerEnabled: false });
+  assert.equal((await call('POST', '/api/printer/test', {})).data.status, 'DISABLED');
+
+  // Puerto cerrado: no se puede conectar -> FAILED (nunca "simulado")
+  const closed = net.createServer(); await new Promise(r => closed.listen(0, '127.0.0.1', r));
+  const closedPort = closed.address().port; await new Promise(r => closed.close(r));
+  await call('PUT', '/api/settings', { ...settings, printerEnabled: true, printerIp: '127.0.0.1', printerPort: closedPort });
+  const failed = (await call('POST', '/api/printer/test', {})).data;
+  assert.equal(failed.status, 'FAILED');
+  assert.ok(failed.error);
+
+  // Impresora falsa que recibe los datos -> SENT
+  let received = 0;
+  const fake = net.createServer(sock => sock.on('data', d => { received += d.length; }));
+  await new Promise(r => fake.listen(0, '127.0.0.1', r));
+  await call('PUT', '/api/settings', { ...settings, printerEnabled: true, printerIp: '127.0.0.1', printerPort: fake.address().port });
+  assert.equal((await call('POST', '/api/printer/test', {})).data.status, 'SENT');
+  await new Promise(r => setTimeout(r, 200));
+  assert.ok(received > 50, 'la impresora recibió el ticket');
+  fake.close();
+  await call('PUT', '/api/settings', { ...settings, printerEnabled: false });
+});
+
+test('el historial de comandas no se borra al superar 2000', async () => {
+  await stop();
+  const file = path.join(DATA_DIR, 'db.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const t = data.tables[0];
+  const extra = Array.from({ length: 2100 }, (_, i) => ({
+    id: `ord-antigua-${i}`, orderNumber: String(i + 1).padStart(4, '0'), createdAt: new Date(Date.now() - (i + 1) * 864e5).toISOString(),
+    status: 'CLOSED', tableId: t.id, tableNumber: t.number, items: [], total: 0, notes: ''
+  }));
+  data.orders = [...data.orders, ...extra];
+  const before = data.orders.length;
+  fs.writeFileSync(file, JSON.stringify(data));
+  await start();
+  const menu = (await call('GET', '/api/menu', undefined, false)).data;
+  const r = await call('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: menu.products[0].id, quantity: 1 }] }, false);
+  assert.equal(r.status, 201);
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).orders.length;
+  assert.equal(after, before + 1);
+  assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).orders.some(o => o.id === 'ord-antigua-2099'), 'la comanda más antigua sigue ahí');
 });

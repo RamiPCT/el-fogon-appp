@@ -4,6 +4,12 @@ Web pública del restaurante (portada, carta, reservas) y sistema de sala: plano
 
 ---
 
+## 📚 Documentación técnica
+- `docs/ESTADO_Y_AUDITORIA.md` · qué hay, qué falla y qué falta
+- `docs/ARQUITECTURA.md` · arquitectura, modelo de datos y decisiones
+- `docs/INTEGRACIONES.md` · Veri*Factu, Google, WhatsApp, pagos, impresora
+- `docs/PROGRESO.md` · fases, pruebas y siguiente tarea
+
 ## 🚀 Puesta en marcha
 
 **Requisitos:** Node.js 22.9 o superior.

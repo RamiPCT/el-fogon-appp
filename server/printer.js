@@ -72,7 +72,8 @@ class ThermalPrinterService {
     return Buffer.concat([init, codePage, boldOn, body, cut]);
   }
 
-  async printOrder(order, settings) {
+  // retry: reintenta si la impresora no responde (pedidos automáticos)
+  async printOrder(order, settings, { retry = false } = {}) {
     const formattedText = this.formatTicket(order, settings);
     const printJob = {
       id: 'print-' + Date.now(),
@@ -85,50 +86,55 @@ class ThermalPrinterService {
     };
 
     this.printHistory.unshift(printJob);
+    if (this.printHistory.length > 200) this.printHistory.length = 200;
 
+    // Impresión desactivada en Ajustes: NO es un éxito, solo queda registrado
     if (!settings.printerEnabled) {
-      printJob.status = 'SIMULATED_SUCCESS';
-      console.log('🖨️ [Impresora Térmica - MODO SIMULADO]');
-      console.log(formattedText);
+      printJob.status = 'DISABLED';
+      console.log('🖨️ [Impresora desactivada] Ticket no impreso:\n' + formattedText);
       return printJob;
     }
 
-    // Intento de conexión por socket TCP (puerto 9100) a impresora física
+    // Hasta 3 intentos solo si NO se llegó a conectar (así nunca se imprime dos veces)
+    const delays = retry ? [0, 2000, 5000] : [0];
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
+      printJob.attempts = i + 1;
+      const r = await this.sendToPrinter(order, settings);
+      printJob.status = r.status;
+      printJob.error = r.error || null;
+      if (r.status !== 'FAILED' || r.connected) break;
+    }
+    if (printJob.status === 'SENT') {
+      console.log(`🖨️ [Impresora] Ticket #${order.orderNumber} enviado a ${settings.printerIp}`);
+    } else {
+      console.warn(`⚠️ [Impresora] Ticket #${order.orderNumber} NO impreso: ${printJob.error}`);
+    }
+    return printJob;
+  }
+
+  // Envía el ticket por TCP (ESC/POS, puerto 9100).
+  // SENT = la impresora aceptó los datos. Por este protocolo la impresora no confirma
+  // que el papel haya salido, así que no se puede garantizar más que eso.
+  sendToPrinter(order, settings) {
     return new Promise((resolve) => {
       const socket = new net.Socket();
+      let connected = false;
+      let done = false;
+      const finish = (res) => { if (done) return; done = true; socket.destroy(); resolve({ ...res, connected }); };
       socket.setTimeout(2500);
-
       socket.connect(settings.printerPort || 9100, settings.printerIp, () => {
+        connected = true;
         try {
-          const buffer = this.generateEscPosBuffer(order, settings);
-          socket.write(buffer, () => {
-            printJob.status = 'PRINTED';
-            console.log(`🖨️ [Impresora Térmica] Ticket #${order.orderNumber} impreso con éxito en ${settings.printerIp}`);
-            socket.destroy();
-            resolve(printJob);
+          socket.write(this.generateEscPosBuffer(order, settings), (err) => {
+            finish(err ? { status: 'FAILED', error: `Error al enviar: ${err.message}` } : { status: 'SENT' });
           });
         } catch (err) {
-          printJob.status = 'ERROR';
-          printJob.error = err.message;
-          socket.destroy();
-          resolve(printJob);
+          finish({ status: 'FAILED', error: err.message });
         }
       });
-
-      socket.on('error', (err) => {
-        console.warn(`⚠️ [Impresora Térmica] No se pudo conectar a ${settings.printerIp}:${settings.printerPort} (${err.message}). Ticket simulado guardado.`);
-        printJob.status = 'SIMULATED_LOCAL';
-        printJob.error = `No conectada físicamente: ${err.message}`;
-        socket.destroy();
-        resolve(printJob);
-      });
-
-      socket.on('timeout', () => {
-        printJob.status = 'SIMULATED_LOCAL';
-        printJob.error = 'Timeout de conexión a la impresora de red';
-        socket.destroy();
-        resolve(printJob);
-      });
+      socket.on('error', (err) => finish({ status: 'FAILED', error: `No se pudo conectar con ${settings.printerIp}:${settings.printerPort || 9100} (${err.message})` }));
+      socket.on('timeout', () => finish({ status: 'FAILED', error: connected ? 'La impresora dejó de responder' : 'La impresora no responde (tiempo agotado)' }));
     });
   }
 

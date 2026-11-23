@@ -451,9 +451,6 @@ class Database {
       tbl.status = 'OCCUPIED';
     }
 
-    // Evitar que el archivo crezca sin límite: se conservan las 2000 comandas más recientes
-    if (this.data.orders.length > 2000) this.data.orders.length = 2000;
-
     this.save();
     return newOrder;
   }

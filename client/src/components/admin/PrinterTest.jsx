@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
 import { api } from '../../utils/api';
 
-const LABELS = {
-  PRINTED: '✅ Ticket impreso. Revisa que se lean bien los acentos, la ñ y el €.',
-  SIMULATED_SUCCESS: 'ℹ️ La impresión automática está desactivada: el ticket solo se ha simulado. Actívala arriba y guarda los ajustes.',
-  SIMULATED_LOCAL: '⚠️ No se encontró la impresora en esa IP y puerto. Comprueba que esté encendida y en la misma red.',
-  ERROR: '❌ La impresora respondió con un error.'
+export const PRINT_STATUS = {
+  SENT: '✅ Enviado a la impresora. Revisa que se lean bien los acentos, la ñ y el €.',
+  DISABLED: 'ℹ️ No se imprimió: la impresión está desactivada. Actívala arriba y guarda los ajustes.',
+  FAILED: '❌ No se imprimió: no se pudo conectar con la impresora. Comprueba que esté encendida, en la misma red y con esa IP y puerto.',
+  // Nombres antiguos (por compatibilidad)
+  PRINTED: '✅ Enviado a la impresora.',
+  SIMULATED_SUCCESS: 'ℹ️ No se imprimió: la impresión está desactivada.',
+  SIMULATED_LOCAL: '❌ No se imprimió: no se encontró la impresora.',
+  ERROR: '❌ No se imprimió: la impresora dio un error.'
 };
 
 // Botón para imprimir un ticket de prueba (guarda antes los ajustes si cambiaste la IP)
@@ -17,7 +21,7 @@ export const PrinterTest = () => {
     setResult(null);
     try {
       const r = await api('/api/printer/test', { method: 'POST', body: {} });
-      setResult(LABELS[r.status] || r.status);
+      setResult((PRINT_STATUS[r.status] || r.status) + (r.error && r.status !== 'DISABLED' ? ` (${r.error})` : ''));
     } catch (err) {
       setResult(`❌ ${err.message}`);
     } finally {

@@ -459,7 +459,7 @@ app.post('/api/orders', orderLimiter, (req, res) => {
     broadcastTable(db.getTable(tbl.id));
 
     // Impresión térmica en segundo plano (el cliente no espera a la impresora)
-    printer.printOrder(newOrder, db.getSettings()).catch(err => console.error('Error de impresión:', err));
+    printer.printOrder(newOrder, db.getSettings(), { retry: true }).catch(err => console.error('Error de impresión:', err));
 
     res.status(201).json({ success: true, order: newOrder });
   } catch (err) {
@@ -767,7 +767,7 @@ app.post('/api/printer/test', auth.requireStaff, async (req, res) => {
     notes: 'Si lees bien los acentos, la ñ y el €, la impresora está lista.'
   };
   const job = await printer.printOrder(sample, settings);
-  res.json({ status: job.status, enabled: !!settings.printerEnabled, ip: settings.printerIp, port: settings.printerPort });
+  res.json({ status: job.status, error: job.error, enabled: !!settings.printerEnabled, ip: settings.printerIp, port: settings.printerPort });
 });
 
 app.post('/api/printer/reprint/:orderId', auth.requireStaff, async (req, res) => {

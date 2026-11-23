@@ -3,6 +3,7 @@ import { useSocket } from '../context/SocketContext';
 import { playOrderChime, playCallChime, unlockAudio, isAudioLocked } from '../utils/sound';
 import { api } from '../utils/api';
 import { ReservationAlerts } from '../components/ReservationAlerts';
+import { PRINT_STATUS } from '../components/admin/PrinterTest';
 import { Printer, Clock, CheckCircle, ChefHat, Bell, RotateCcw, BellRing, Receipt, Volume2, Check } from 'lucide-react';
 
 export const KdsDisplay = () => {
@@ -96,8 +97,7 @@ export const KdsDisplay = () => {
   const handleReprint = async (orderId) => {
     try {
       const job = await api(`/api/printer/reprint/${orderId}`, { method: 'POST', body: {} });
-      const estados = { PRINTED: 'impreso', SIMULATED_SUCCESS: 'simulado (impresora desactivada)', SIMULATED_LOCAL: 'no se encontró la impresora', ERROR: 'error' };
-      alert(`🖨️ Ticket #${job.orderNumber}: ${estados[job.status] || job.status}`);
+      alert(`🖨️ Ticket #${job.orderNumber}: ${PRINT_STATUS[job.status] || job.status}`);
     } catch (err) {
       alert(`Error al reimprimir: ${err.message}`);
     }
