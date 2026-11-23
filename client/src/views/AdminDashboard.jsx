@@ -27,6 +27,7 @@ export const AdminDashboard = () => {
   const [selected, setSelected] = useState(null); // { kind: 'table'|'element', id }
   const [editMode, setEditMode] = useState('move'); // 'move' | 'paint'
   const [zoom, setZoom] = useState(1);
+  const [showFloorSize, setShowFloorSize] = useState(false);
   const [layoutDirty, setLayoutDirtyState] = useState(false);
   const dirtyRef = useRef(false);
   dirtyRef.current = layoutDirty;
@@ -264,11 +265,15 @@ export const AdminDashboard = () => {
   // Cambiar tamaño de la mesa (sin salirse del plano)
   const handleResizeTable = (dWidth, dHeight) => {
     if (!selectedTableId) return;
-    patchTable(selectedTableId, t => ({
-      ...t,
-      width: Math.max(30, Math.min(floorW - (t.x || 0), (t.width || 60) + dWidth)),
-      height: Math.max(30, Math.min(floorH - (t.y || 0), (t.height || 60) + dHeight))
-    }));
+    patchTable(selectedTableId, t => {
+      const round = t.shape === 'round' || t.shape === 'bar_stool';
+      const dw = round ? (dWidth || dHeight) : dWidth;
+      const dh = round ? (dWidth || dHeight) : dHeight;
+      let width = Math.max(30, Math.min(floorW - (t.x || 0), (t.width || 60) + dw));
+      let height = Math.max(30, Math.min(floorH - (t.y || 0), (t.height || 60) + dh));
+      if (round) { const side = Math.min(width, height); width = side; height = side; }
+      return { ...t, width, height };
+    });
   };
 
   const handleShapeChange = (shape) => {
@@ -659,26 +664,38 @@ export const AdminDashboard = () => {
             </div>
           )}
 
-          {/* Tamaño de la cuadrícula y zoom */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-300 bg-[#121212] p-2 rounded-xl border border-stone-800">
-            <div className="flex items-center gap-3">
-              {[['cols', 'Ancho'], ['rows', 'Largo']].map(([k, label]) => (
-                <div key={k} className="flex items-center gap-1">
-                  <span>{label}:</span>
-                  <button onClick={() => handleResizeFloor(k, -1)} className="w-6 h-6 bg-stone-800 rounded font-bold">-</button>
-                  <span className="font-mono w-5 text-center">{floor?.[k] ?? '–'}</span>
-                  <button onClick={() => handleResizeFloor(k, 1)} className="w-6 h-6 bg-stone-800 rounded font-bold">+</button>
-                </div>
-              ))}
-              <span className="text-stone-500 hidden sm:inline">casillas</span>
-            </div>
+          {/* Zoom y acceso (separado) al tamaño del salón */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-300">
             <div className="flex items-center gap-1">
               <span>Zoom:</span>
               {[1, 1.5, 2].map(z => (
-                <button key={z} onClick={() => setZoom(z)} className={`px-2 py-0.5 rounded ${zoom === z ? 'bg-[#C8A45D] text-black font-bold' : 'bg-stone-800'}`}>{z}x</button>
+                <button key={z} onClick={() => setZoom(z)} className={`px-2 py-1 rounded ${zoom === z ? 'bg-[#C8A45D] text-black font-bold' : 'bg-stone-800'}`}>{z}x</button>
               ))}
             </div>
+            <button
+              onClick={() => setShowFloorSize(v => !v)}
+              className={`px-2.5 py-1.5 rounded-lg border font-semibold ${showFloorSize ? 'bg-sky-900/60 border-sky-600 text-sky-100' : 'bg-[#121212] border-stone-700 text-stone-300'}`}
+            >
+              📐 {showFloorSize ? 'Cerrar tamaño del salón' : 'Cambiar tamaño del salón'}
+            </button>
           </div>
+
+          {showFloorSize && (
+            <div className="bg-sky-950/40 border border-sky-800/70 rounded-xl p-3 space-y-2 text-[11px] text-sky-100">
+              <p className="font-bold">📐 Tamaño de TODO el salón (no de una mesa)</p>
+              <p className="text-sky-200/80">Amplía o reduce la cuadrícula del local. Para cambiar el tamaño de una mesa, tócala en el plano y usa los controles que aparecen debajo.</p>
+              <div className="flex flex-wrap gap-4 pt-1">
+                {[['cols', 'Ancho del salón (columnas)'], ['rows', 'Largo del salón (filas)']].map(([k, label]) => (
+                  <div key={k} className="flex items-center gap-1.5">
+                    <span>{label}:</span>
+                    <button onClick={() => handleResizeFloor(k, -1)} className="w-8 h-8 bg-sky-900 border border-sky-700 rounded-lg font-bold text-base">−</button>
+                    <span className="font-mono w-6 text-center font-bold">{floor?.[k] ?? '–'}</span>
+                    <button onClick={() => handleResizeFloor(k, 1)} className="w-8 h-8 bg-sky-900 border border-sky-700 rounded-lg font-bold text-base">+</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* LIENZO DEL PLANO */}
           {loaded && tables.length === 0 && (
@@ -700,6 +717,50 @@ export const AdminDashboard = () => {
             />
           ) : (
             <div className="h-64 rounded-xl border border-stone-800 animate-pulse" />
+          )}
+
+          {/* CONTROLES RÁPIDOS DE LA MESA ELEGIDA (justo debajo del plano) */}
+          {selectedTable && editMode === 'move' && (
+            <div className="bg-[#14281D] border border-[#C8A45D]/70 rounded-xl p-2.5 text-[11px] text-stone-200 space-y-2 fogon-pop">
+              <div className="flex items-center justify-between">
+                <span className="font-display font-bold text-sm text-[#E6C687]">
+                  {selectedTable.shape === 'bar_stool' ? 'Taburete' : 'Mesa'} {selectedTable.number}
+                </span>
+                <span className="text-stone-400">{selectedTable.width || 60} × {selectedTable.height || 60}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold">Tamaño de la mesa:</span>
+                  <button onClick={() => handleResizeTable(-10, -10)} className="w-9 h-9 bg-[#121212] border border-[#C8A45D]/50 rounded-lg font-bold text-base" aria-label="Más pequeña">−</button>
+                  <button onClick={() => handleResizeTable(10, 10)} className="w-9 h-9 bg-[#121212] border border-[#C8A45D]/50 rounded-lg font-bold text-base" aria-label="Más grande">+</button>
+                </div>
+                {selectedTable.shape === 'rect' && (
+                  <>
+                    <div className="flex items-center gap-1">
+                      <span>Ancho:</span>
+                      <button onClick={() => handleResizeTable(-10, 0)} className="w-8 h-8 bg-[#121212] border border-stone-700 rounded-lg font-bold">−</button>
+                      <button onClick={() => handleResizeTable(10, 0)} className="w-8 h-8 bg-[#121212] border border-stone-700 rounded-lg font-bold">+</button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span>Alto:</span>
+                      <button onClick={() => handleResizeTable(0, -10)} className="w-8 h-8 bg-[#121212] border border-stone-700 rounded-lg font-bold">−</button>
+                      <button onClick={() => handleResizeTable(0, 10)} className="w-8 h-8 bg-[#121212] border border-stone-700 rounded-lg font-bold">+</button>
+                    </div>
+                    <button
+                      onClick={() => patchTable(selectedTable.id, t => ({
+                        ...t,
+                        width: Math.min(t.height || 60, floorW - (t.x || 0)),
+                        height: Math.min(t.width || 60, floorH - (t.y || 0))
+                      }))}
+                      className="px-2.5 h-8 bg-[#121212] border border-stone-700 rounded-lg font-semibold"
+                    >
+                      ↻ Girar
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="text-[10px] text-stone-400">También puedes arrastrar la esquina azul de la mesa para estirarla.</p>
+            </div>
           )}
 
           {/* PANEL DEL ELEMENTO SELECCIONADO (barra, pared, zona...) */}
@@ -837,7 +898,7 @@ export const AdminDashboard = () => {
               {/* 2. TAMAÑO Y FORMA DE LA MESA */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-[#1A1A1A] p-3 rounded-xl border border-stone-800">
                 <div className="space-y-2">
-                  <span className="font-semibold text-stone-300 block">Modificar Tamaño de Mesa:</span>
+                  <span className="font-semibold text-stone-300 block">Tamaño de esta mesa:</span>
                   <div className="flex items-center gap-3">
                     <div className="flex-1 space-y-1">
                       <span className="text-[10px] text-stone-400">Ancho: {selectedTable.width || 75}px</span>

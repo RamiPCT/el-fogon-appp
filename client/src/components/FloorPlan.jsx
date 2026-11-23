@@ -77,7 +77,7 @@ export const FloorPlan = ({
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const w = kind === 'table' ? (item.width || 60) : item.w;
     const h = kind === 'table' ? (item.height || 60) : item.h;
-    dragRef.current = { kind, id: item.id, mode, startX: e.clientX, startY: e.clientY, x: item.x || 0, y: item.y || 0, w, h, k: unitsPerPx() };
+    dragRef.current = { kind, id: item.id, mode, startX: e.clientX, startY: e.clientY, x: item.x || 0, y: item.y || 0, w, h, k: unitsPerPx(), round: kind === 'table' && (item.shape === 'round' || item.shape === 'bar_stool') };
   };
 
   const moveDrag = (e) => {
@@ -93,7 +93,12 @@ export const FloorPlan = ({
       const minS = d.kind === 'table' ? 30 : cell / 2;
       const w = Math.min(W - d.x, Math.max(minS, snapTo(d.w + dx)));
       const h = Math.min(H - d.y, Math.max(minS, snapTo(d.h + dy)));
-      onChange(d.kind, d.id, d.kind === 'table' ? { width: w, height: h } : { w, h });
+      if (d.kind === 'table' && d.round) {
+        const side = Math.min(Math.max(w, h), W - d.x, H - d.y);
+        onChange('table', d.id, { width: side, height: side });
+      } else {
+        onChange(d.kind, d.id, d.kind === 'table' ? { width: w, height: h } : { w, h });
+      }
     }
   };
 
@@ -189,7 +194,7 @@ export const FloorPlan = ({
                   onPointerMove={moveDrag}
                   onPointerUp={endDrag}
                   onPointerCancel={endDrag}
-                  className="absolute -right-1 -bottom-1 w-4 h-4 rounded-sm bg-sky-400 border-2 border-white cursor-se-resize touch-none"
+                  className="absolute -right-2 -bottom-2 w-6 h-6 sm:w-4 sm:h-4 sm:-right-1 sm:-bottom-1 rounded-md bg-sky-400 border-2 border-white cursor-se-resize touch-none shadow"
                   aria-label="Redimensionar"
                 />
               )}
@@ -229,7 +234,7 @@ export const FloorPlan = ({
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
                     onPointerCancel={endDrag}
-                    className="absolute -right-1.5 -bottom-1.5 w-4 h-4 rounded-sm bg-sky-400 border-2 border-white cursor-se-resize touch-none"
+                    className="absolute -right-2.5 -bottom-2.5 w-6 h-6 sm:w-4 sm:h-4 sm:-right-1.5 sm:-bottom-1.5 rounded-md bg-sky-400 border-2 border-white cursor-se-resize touch-none shadow"
                     aria-label="Redimensionar"
                   />
                 )}
