@@ -4,6 +4,7 @@ import { SettingsProvider } from './context/SettingsContext';
 import { I18nProvider, useI18n } from './i18n';
 import { Header } from './components/Header';
 import { StaffLogin } from './components/StaffLogin';
+import { setTableKey } from './utils/tableKey';
 import { CookieNotice } from './components/CookieNotice';
 import { Home } from './views/Home';
 import { CustomerPortal } from './views/CustomerPortal';
@@ -12,7 +13,7 @@ import { KdsDisplay } from './views/KdsDisplay';
 import { AdminDashboard } from './views/AdminDashboard';
 import { CancelReservation } from './views/CancelReservation';
 import { LegalPage } from './views/LegalPage';
-import { api, getStaffToken, staffLogout } from './utils/api';
+import { api, getStaffToken, staffLogout, setStaffInfo } from './utils/api';
 import { Lock, Unlock, X } from 'lucide-react';
 
 // --------------------------------------------------------------------------
@@ -29,6 +30,7 @@ function parseRoute(pathname) {
   if (['/bienvenido', '/plano'].includes(path)) return { view: 'plan', planMode: 'here' };
   if (path === '/carta') return { view: 'table', table: null };
   if (path.startsWith('/m/') || path.startsWith('/mesa/')) return { view: 'table', table: decodeURIComponent(parts[2] || '') || null };
+  if (path.startsWith('/q/')) return { view: 'qr', qrKey: parts[2] || '' };
   if (path === '/kds') return { view: 'kds' };
   if (path === '/admin') return { view: 'admin' };
   if (path.startsWith('/cancelar/')) return { view: 'cancel', cancelId: parts[2] };
@@ -37,6 +39,22 @@ function parseRoute(pathname) {
 }
 
 const STAFF_VIEWS = ['kds', 'admin'];
+
+// Entrada por el QR de una mesa (/q/<clave>): se guarda la clave y se abre la mesa
+const QrEntry = ({ qrKey, onResolved }) => {
+  const [error, setError] = useState('');
+  useEffect(() => {
+    fetch(`/api/qr/${encodeURIComponent(qrKey)}`)
+      .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'QR no válido'); return d; })
+      .then(d => { setTableKey(d.tableNumber, qrKey); onResolved(d.tableNumber); })
+      .catch(err => setError(err.message));
+  }, [qrKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="max-w-sm mx-auto px-4 py-16 text-center text-sm text-stone-300">
+      {error ? <p className="text-red-300" role="alert">{error}</p> : <p>Abriendo tu mesa…</p>}
+    </div>
+  );
+};
 
 function AppShell() {
   const { t } = useI18n();
@@ -67,7 +85,7 @@ function AppShell() {
   // Sesión de personal: comprobarla con el servidor y reaccionar si caduca
   useEffect(() => {
     if (getStaffToken()) {
-      api('/api/auth/check').then(() => setIsStaff(true)).catch(() => setIsStaff(false));
+      api('/api/auth/check').then((d) => { setStaffInfo(d?.staff); setIsStaff(true); }).catch(() => setIsStaff(false));
     }
     const sync = () => setIsStaff(!!getStaffToken());
     window.addEventListener('auth:changed', sync);
@@ -131,6 +149,8 @@ function AppShell() {
             onNavigate={navigate}
           />
         )}
+
+        {route.view === 'qr' && <QrEntry qrKey={route.qrKey} onResolved={(n) => { window.history.replaceState({}, '', `/m/${encodeURIComponent(n)}`); setRoute({ view: 'table', table: n }); setCurrentTable(n); }} />}
 
         {route.view === 'table' && (
           <TableOrderPortal

@@ -7,6 +7,7 @@ import { useSocket } from '../context/SocketContext';
 import { useSettings } from '../context/SettingsContext';
 import { useI18n } from '../i18n';
 import { api } from '../utils/api';
+import { getTableKey, tableKeyHeaders } from '../utils/tableKey';
 import { formatPrice } from '../utils/formatters';
 import { BellRing, Receipt, Clock, ChefHat, CircleCheck, GlassWater, AlertTriangle, ChevronDown, Check } from 'lucide-react';
 
@@ -87,7 +88,7 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
 
   const loadTable = useCallback((tbl) => {
     if (!tbl) return;
-    fetch(`/api/tables/${encodeURIComponent(tbl)}/orders`).then(r => (r.ok ? r.json() : [])).then(o => setOrders(Array.isArray(o) ? o : [])).catch(() => {});
+    fetch(`/api/tables/${encodeURIComponent(tbl)}/orders`, { headers: tableKeyHeaders(tbl) }).then(r => (r.ok ? r.json() : [])).then(o => setOrders(Array.isArray(o) ? o : [])).catch(() => {});
     fetch(`/api/tables/${encodeURIComponent(tbl)}`).then(r => (r.ok ? r.json() : null)).then(setTableInfo).catch(() => {});
   }, []);
 
@@ -103,7 +104,7 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
   // ---------- Tiempo real ----------
   useEffect(() => {
     if (!socket) return;
-    const join = () => { if (tableRef.current) { socket.emit('table:join', tableRef.current); loadTable(tableRef.current); } };
+    const join = () => { if (tableRef.current) { socket.emit('table:join', tableRef.current, getTableKey(tableRef.current)); loadTable(tableRef.current); } };
     join();
     const mine = (o) => o.tableNumber === tableRef.current;
     const onNew = (o) => { if (mine(o)) setOrders(prev => [o, ...prev.filter(x => x.id !== o.id)]); };
@@ -187,6 +188,7 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
     try {
       const data = await api('/api/orders', {
         method: 'POST',
+        headers: tableKeyHeaders(tableNumber),
         body: {
           tableNumber,
           items: cartItems.map(i => ({ productId: i.id, name: i.name, quantity: i.quantity, modifiers: i.selectedModifiers, notes: i.itemNotes || '' })),
@@ -211,7 +213,7 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
   const callStaff = async (type) => {
     setCallMsg('');
     try {
-      await api(`/api/tables/${encodeURIComponent(tableNumber)}/call`, { method: 'POST', body: { type } });
+      await api(`/api/tables/${encodeURIComponent(tableNumber)}/call`, { method: 'POST', body: { type }, headers: tableKeyHeaders(tableNumber) });
       setCalls(prev => ({ ...prev, [type]: 'sent' }));
       setCallMsg(type === 'bill' ? t('call.billSent') : t('call.waiterSent'));
     } catch (err) {

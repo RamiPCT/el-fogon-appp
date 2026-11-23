@@ -1,6 +1,7 @@
 // Acceso a la API con sesión de personal (token emitido por el servidor tras validar el PIN).
 
 const TOKEN_KEY = 'fogon_staff_token';
+const STAFF_KEY = 'fogon_staff_info';
 
 const storage = {
   get(key) {
@@ -16,13 +17,26 @@ const storage = {
 
 export const getStaffToken = () => storage.get(TOKEN_KEY);
 
-export const setStaffToken = (token) => {
+export const setStaffToken = (token, staff) => {
   storage.set(TOKEN_KEY, token);
+  if (staff) storage.set(STAFF_KEY, JSON.stringify(staff));
   window.dispatchEvent(new Event('auth:changed'));
 };
 
 export const clearStaffToken = () => {
   storage.remove(TOKEN_KEY);
+  storage.remove(STAFF_KEY);
+  window.dispatchEvent(new Event('auth:changed'));
+};
+
+// Quién ha iniciado sesión y qué permisos tiene (lo confirma el servidor en /api/auth/check)
+export const getStaffInfo = () => {
+  try { return JSON.parse(storage.get(STAFF_KEY) || 'null'); } catch (_) { return null; }
+};
+
+export const setStaffInfo = (staff) => {
+  if (!staff) return;
+  storage.set(STAFF_KEY, JSON.stringify(staff));
   window.dispatchEvent(new Event('auth:changed'));
 };
 
@@ -59,9 +73,11 @@ export async function api(url, { method = 'GET', body, headers = {} } = {}) {
   return data;
 }
 
-export async function staffLogin(pin) {
-  const data = await api('/api/auth/login', { method: 'POST', body: { pin } });
-  setStaffToken(data.token);
+// Acceso con PIN (texto) o con { username, password }
+export async function staffLogin(creds) {
+  const body = typeof creds === 'string' ? { pin: creds } : creds;
+  const data = await api('/api/auth/login', { method: 'POST', body });
+  setStaffToken(data.token, data.staff);
   return data;
 }
 

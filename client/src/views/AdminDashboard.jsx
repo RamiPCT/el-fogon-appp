@@ -10,12 +10,29 @@ import { ReservationsTab } from '../components/admin/ReservationsTab';
 import { MenuTab } from '../components/admin/MenuTab';
 import { SettingsTab } from '../components/admin/SettingsTab';
 import { ReservationAlerts } from '../components/ReservationAlerts';
+import { TeamTab } from '../components/admin/TeamTab';
+import { AuditTab } from '../components/admin/AuditTab';
+import { QrSection } from '../components/admin/QrSection';
+import { useStaff, ROLE_LABELS } from '../hooks/useStaff';
 import { onImgError } from '../utils/images';
 
 
 export const AdminDashboard = () => {
   const { socket } = useSocket();
-  const [activeTab, setActiveTab] = useState('visual_map'); // 'visual_map', 'reservations', 'menu', 'settings'
+  const { staff: me, can } = useStaff();
+  // Pestañas según los permisos del usuario (el servidor los vuelve a comprobar en cada acción)
+  const TABS = [
+    { id: 'visual_map', label: '🗺️ Plano', show: can('floor.manage') },
+    { id: 'reservations', label: '📅 Reservas', show: can('reservations.manage') },
+    { id: 'menu', label: '🍽️ Carta', show: can('menu.manage') || can('menu.availability') },
+    { id: 'team', label: '👥 Equipo', show: can('staff.manage') },
+    { id: 'audit', label: '📜 Historial', show: can('audit.view') },
+    { id: 'settings', label: '⚙️ Ajustes', show: can('settings.manage') }
+  ].filter(t => t.show);
+  const [activeTab, setActiveTab] = useState(() => TABS[0]?.id || 'none');
+  useEffect(() => {
+    if (!TABS.some(t => t.id === activeTab) && TABS[0]) setActiveTab(TABS[0].id);
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tables, setTables] = useState([]);
   const [selectedTableId, setSelectedTableId] = useState(null);
   const [tableToDelete, setTableToDelete] = useState(null); // Modal de confirmación estilizado
@@ -72,9 +89,9 @@ export const AdminDashboard = () => {
     const names = ['mesas', 'reservas', 'ajustes', 'carta', 'plano'];
     const results = await Promise.allSettled([
       api('/api/tables'),
-      api('/api/reservations'),
+      can('reservations.manage') ? api('/api/reservations') : Promise.resolve(null),
       api('/api/settings'),
-      api('/api/menu'),
+      api(can('menu.manage') ? '/api/menu?all=1' : '/api/menu'),
       api('/api/floor')
     ]);
     const [tblR, resR, setR, menuR, floorR] = results;
@@ -477,50 +494,31 @@ export const AdminDashboard = () => {
           <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
         </div>
 
-        {/* Pestañas Segmentadas en Grid */}
-        <div className="grid grid-cols-4 gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
-          <button
-            onClick={() => setActiveTab('visual_map')}
-            className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${
-              activeTab === 'visual_map'
-                ? 'bg-[#C8A45D] text-[#121212] shadow-md'
-                : 'text-stone-300 hover:text-white'
-            }`}
-          >
-            🗺️ Plano
-          </button>
-          <button
-            onClick={() => setActiveTab('reservations')}
-            className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${
-              activeTab === 'reservations'
-                ? 'bg-[#C8A45D] text-[#121212] shadow-md'
-                : 'text-stone-300 hover:text-white'
-            }`}
-          >
-            📅 Reservas
-          </button>
-          <button
-            onClick={() => setActiveTab('menu')}
-            className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${
-              activeTab === 'menu'
-                ? 'bg-[#C8A45D] text-[#121212] shadow-md'
-                : 'text-stone-300 hover:text-white'
-            }`}
-          >
-            🍽️ Carta
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${
-              activeTab === 'settings'
-                ? 'bg-[#C8A45D] text-[#121212] shadow-md'
-                : 'text-stone-300 hover:text-white'
-            }`}
-          >
-            ⚙️ Ajustes
-          </button>
-        </div>
+        {me && (
+          <p className="text-[11px] text-stone-400">Sesión: <strong className="text-[#E6C687]">{me.name}</strong> · {ROLE_LABELS[me.role] || me.role}</p>
+        )}
+
+        {/* Pestañas según permisos */}
+        {TABS.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
+            {TABS.map(tabDef => (
+              <button
+                key={tabDef.id}
+                onClick={() => setActiveTab(tabDef.id)}
+                className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${activeTab === tabDef.id ? 'bg-[#C8A45D] text-[#121212] shadow-md' : 'text-stone-300 hover:text-white'}`}
+              >
+                {tabDef.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {TABS.length === 0 && (
+        <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-4 text-xs text-stone-300">
+          Tu usuario trabaja desde la pantalla de comandas. <a href="/kds" className="text-[#C8A45D] underline">Ir a Cocina / Barra</a>
+        </div>
+      )}
 
       <ReservationAlerts />
 
@@ -972,6 +970,10 @@ export const AdminDashboard = () => {
         </div>
       )}
 
+      {activeTab === 'visual_map' && (
+        <QrSection tables={tables} setTables={setTables} settings={settings} setSettings={setSettings} />
+      )}
+
       {/* PESTAÑA 2: RESERVAS */}
       {activeTab === 'reservations' && (
         <ReservationsTab reservations={reservations} onCancel={handleCancelReservation} />
@@ -979,8 +981,14 @@ export const AdminDashboard = () => {
 
       {/* PESTAÑA 3: CARTA */}
       {activeTab === 'menu' && (
-        <MenuTab products={products} setProducts={setProducts} categories={categories} allergenKeys={allergenKeys} />
+        <MenuTab products={products} setProducts={setProducts} categories={categories} setCategories={setCategories} allergenKeys={allergenKeys} canManage={can('menu.manage')} />
       )}
+
+      {/* PESTAÑA: EQUIPO */}
+      {activeTab === 'team' && <TeamTab me={me} />}
+
+      {/* PESTAÑA: HISTORIAL */}
+      {activeTab === 'audit' && <AuditTab />}
 
       {/* PESTAÑA 4: AJUSTES */}
       {activeTab === 'settings' && (

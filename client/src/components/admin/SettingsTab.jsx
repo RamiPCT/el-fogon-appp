@@ -145,6 +145,24 @@ export const SettingsTab = ({ settings, setSettings }) => {
 
     <form onSubmit={handleChangePin} className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-4 space-y-3 shadow-xl text-xs mt-3.5">
       <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">🔑 PIN del personal</h3>
+      <label className="flex items-start gap-2 text-stone-300">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={settings.allowPinLogin !== false}
+          onChange={async (e) => {
+            const allowPinLogin = e.target.checked;
+            try {
+              const saved = await api('/api/settings', { method: 'PUT', body: { allowPinLogin } });
+              setSettings(saved);
+            } catch (err) { alert(err.message); }
+          }}
+        />
+        <span>
+          Permitir entrar con el PIN compartido del local.
+          <span className="block text-[10px] text-stone-500">Cuando cada persona tenga su usuario (pestaña Equipo), desactívalo: así todo queda registrado con nombre. Para desactivarlo debe existir al menos un usuario Administrador.</span>
+        </span>
+      </label>
       {pinSource === 'env' ? (
         <p className="text-stone-400">El PIN está fijado en el servidor con la variable <code className="text-[#E6C687]">STAFF_PIN</code>. Para cambiarlo, edítala allí.</p>
       ) : (

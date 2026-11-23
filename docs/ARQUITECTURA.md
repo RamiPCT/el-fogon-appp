@@ -36,7 +36,18 @@ server/
                       payments, cash, invoices, audit, stats, integrations
 ```
 
-## 3. Persistencia · PENDIENTE (decisión D2)
+## 3. Persistencia · SQLite (D2 aprobada e implementada el 23/11/2026)
+
+**Cómo está hecho (`server/store.js`, `server/db.js`):**
+
+- Archivo único `DATA_DIR/fogon.sqlite` con `node:sqlite` (incluido en Node, sin dependencias), modo WAL y transacciones.
+- Las colecciones existentes (mesas, carta, pedidos, reservas, sesiones) se guardan como filas JSON en la tabla `docs` (`coll`, `id`, `data`); ajustes y plano en `kv`. Así el código y la API existentes no cambian. Cada guardado es una transacción y solo reescribe las filas que cambian (en pedidos y reservas, solo las marcadas con `touch()`).
+- Los módulos nuevos usan tablas relacionales: `employees` y `audit_log` (con triggers que impiden modificar o borrar). Pagos, caja y facturas seguirán este camino.
+- `db.transaction(fn)` agrupa varias operaciones en una sola (todo o nada).
+- Migración automática y verificada desde `db.json` la primera vez (ver abajo). Las copias de seguridad siguen siendo JSON completos (portables).
+- Paso futuro a PostgreSQL: `docs.data` → `JSONB`; el SQL usado es estándar.
+
+**Análisis previo (por qué se migró):**
 
 ### Por qué el JSON actual no sirve para lo que viene
 
@@ -119,10 +130,28 @@ El actual `CLOSED` de los pedidos se mantiene como «servido y mesa liberada» p
 | # | Decisión | Estado |
 | --- | --- | --- |
 | D1 | Mantener React + Node/Express + Socket.IO y ampliar sobre lo existente | Aprobada (plan maestro) |
-| D2 | Migrar de JSON a SQLite (`node:sqlite`) con importación verificada | **PENDIENTE** |
+| D2 | Migrar de JSON a SQLite (`node:sqlite`) con importación verificada | **Hecha** (23/11) |
 | D3 | Importes en céntimos enteros; IVA por producto copiado a cada línea | Propuesta |
 | D4 | Un único modelo de pedidos para QR y TPV | Propuesta |
-| D5 | Tarjeta: datáfono del banco, el cobro se registra a mano en el TPV (sin pasarela integrada) | **PENDIENTE** |
-| D6 | Facturación: alcance legal (ver `INTEGRACIONES.md`) | **PENDIENTE** |
-| D7 | QR seguros: requiere reimprimir los QR de las mesas | **PENDIENTE** (cuándo) |
+| D5 | Tarjeta: datáfono del banco, el cobro se registra a mano en el TPV (sin pasarela integrada) | **Aprobada** |
+| D6 | Facturación: se construye la estructura sin datos fiscales reales; el titular y sus datos se añaden después | **Aprobada** (sin datos fiscales todavía) |
+| D7 | QR seguros con clave por mesa (`/q/<clave>`), modo compatibilidad `qrLegacyEnabled` hasta reimprimir | **Hecha** (23/11) |
 | D8 | Impresión: cuando el servidor esté en la nube, un agente local en el ordenador del local reenvía a la impresora | Propuesta (solo si se publica en la nube) |
+| D9 | Acceso: usuarios individuales (scrypt) + PIN del local como «Dueño (PIN)» mientras `allowPinLogin` esté activo | Hecha (23/11) |
+| D10 | WhatsApp sin API: la reserva se guarda sola y el cliente confirma enviando el mensaje ya escrito; el local recibe el aviso en el KDS y el panel sin tener que responder | Aprobada (sin coste) |
+| D11 | Bajas lógicas en carta (`active: false`): nada se borra, los pedidos antiguos conservan nombre y precio | Hecha (23/11) |
+
+## 7. Roles y permisos (implementado)
+
+| Permiso | Admin | Encargado | Camarero | Cocina | Barra |
+| --- | --- | --- | --- | --- | --- |
+| Ajustes, PIN, copias | ✓ | | | | |
+| Equipo (el encargado no gestiona administradores ni encargados) | ✓ | ✓ | | | |
+| Historial de actividad | ✓ | ✓ | | | |
+| Plano, mesas, QR | ✓ | ✓ | | | |
+| Carta: altas, bajas, precios, fotos | ✓ | ✓ | | | |
+| Carta: marcar agotado | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Reservas y estado de mesas | ✓ | ✓ | ✓ | | |
+| Comandas (ver y cambiar estado), avisos, reimprimir | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Definido en `server/staff.js` (`PERMISSIONS`) y aplicado con `auth.requirePermission()` en cada ruta.

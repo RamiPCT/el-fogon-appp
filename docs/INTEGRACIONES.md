@@ -24,7 +24,7 @@ Fuentes: [RDL 15/2025 (resumen RSM, enlaza al BOE)](https://www.rsm.global/spain
 - **No es pública**: hay que pedir acceso para un proyecto de Google Cloud; Google revisa la solicitud (unos 14 días) y solo da acceso a fichas que gestione la cuenta autorizada.
 - Diseño: sincronización periódica (no instantánea) desde el servidor, guardada en la base de datos, con fecha de última sincronización y errores visibles en el panel. Sin scraping.
 
-**Necesito del dueño:** acceso de administrador a la ficha de Google del local y crear (o darme acceso a) un proyecto de Google Cloud para solicitar la API.
+**Decisión del dueño (23/11):** se hará cuando la web esté publicada. Entonces hará falta acceso de administrador a la ficha de Google y un proyecto de Google Cloud para solicitar la API.
 
 Fuentes: [Requisitos de acceso](https://developers.google.com/my-business/content/prereqs) · [Preguntas frecuentes](https://developers.google.com/my-business/content/faq) · [Método reviews.list](https://developers.google.com/my-business/reference/rest/v4/accounts.locations.reviews/list)
 
@@ -33,7 +33,7 @@ Fuentes: [Requisitos de acceso](https://developers.google.com/my-business/conten
 - **Hoy (gratis):** enlaces `wa.me` con el mensaje ya escrito; el cliente o el personal pulsa «enviar». Se mantiene.
 - **Automático (WhatsApp Business Platform / Cloud API de Meta):** permite enviar confirmaciones y avisos sin intervención, pero **cada plantilla tiene coste por mensaje**. Para España, mensajes de utilidad (confirmaciones) ≈ 0,0166 € y de marketing ≈ 0,0509 € (tarifas 2026). Desde el 1 de octubre de 2026 Meta cobra también las de utilidad dentro de la ventana de 24 h. Requiere cuenta de Meta Business verificada, un número dedicado y plantillas aprobadas.
 
-**Necesito del dueño:** decidir si quiere asumir ese coste; si sí, cuenta de Meta Business y número de teléfono para la API.
+**Decisión del dueño (23/11):** sin coste por ahora. La reserva se guarda sola, el cliente confirma enviando el WhatsApp ya escrito y el local recibe el aviso en el KDS y el panel sin tener que responder. Si más adelante se quiere enviar mensajes automáticos, hará falta cuenta de Meta Business y número dedicado.
 
 Fuentes: [Precios oficiales de Meta](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing) · [Tarifas España](https://whautomate.com/whatsapp-business-api-pricing-spain) · [Cambio del 1/10/2026](https://help.sleekflow.io/en_US/pricing)
 

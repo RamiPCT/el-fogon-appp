@@ -1,6 +1,6 @@
 # El Fogón · Estado actual y auditoría técnica
 
-Auditoría del 23/11/2026 sobre el commit `cdd4c72` (GitHub `RamiPCT/el-fogon-appp`, rama `main`), comprobado también contra la carpeta del ordenador del dueño (sin cambios de código posteriores; `npm run build` funciona en Windows).
+Auditoría del 23/11/2026 (actualizada al final de la sesión: ver estados «Corregido») sobre el commit `cdd4c72` (GitHub `RamiPCT/el-fogon-appp`, rama `main`), comprobado también contra la carpeta del ordenador del dueño (sin cambios de código posteriores; `npm run build` funciona en Windows).
 
 La app se usa en producción desde hoy en la red local del restaurante. Cualquier cambio debe mantener compatibles los datos de `server/data/db.json`.
 
@@ -54,12 +54,12 @@ Prioridad: **P0** bloquea fases siguientes o pone en riesgo datos · **P1** nece
 | --- | --- | --- | --- | --- |
 | Se borraban comandas al superar 2.000 | `server/db.js` `createOrder` | Pérdida de historial | P0 | **Corregido 23/11** (prueba incluida) |
 | Impresora: un fallo de conexión se registraba como «simulado» | `server/printer.js`, `admin/PrinterTest.jsx`, `KdsDisplay.jsx` | Comandas no impresas sin que nadie lo sepa | P0 | **Corregido 23/11**: estados `SENT` / `DISABLED` / `FAILED`, 3 intentos solo si no hubo conexión (sin duplicados) |
-| QR inseguro: la mesa se identifica solo por su número en la URL (`/m/:n`) y en `POST /api/orders` | `App.jsx`, `TableOrderPortal.jsx`, `server/index.js` | Cualquiera puede pedir a otra mesa o ver sus comandas | P1 | Pendiente: requiere reimprimir QR (decisión) |
-| Persistencia JSON: todo en memoria, se reescribe entero, sin transacciones ni relaciones | `server/db.js` | Inadecuada para caja, pagos y facturas (integridad, crecimiento) | P0 para fase 5 | Propuesta de migración en `ARQUITECTURA.md` |
+| QR inseguro: la mesa se identifica solo por su número en la URL (`/m/:n`) y en `POST /api/orders` | `App.jsx`, `TableOrderPortal.jsx`, `server/index.js` | Cualquiera puede pedir a otra mesa o ver sus comandas | P1 | **Corregido 23/11**: QR con clave por mesa; modo compatibilidad hasta reimprimir |
+| Persistencia JSON: todo en memoria, se reescribe entero, sin transacciones ni relaciones | `server/db.js` | Inadecuada para caja, pagos y facturas (integridad, crecimiento) | P0 para fase 5 | **Corregido 23/11**: SQLite con migración verificada |
 | Un solo estado de pedido mezcla preparación y cierre; liberar la mesa marca `SERVED → CLOSED` sin cobro | `server/index.js` (`ORDER_STATUSES`, `PUT /api/tables/:id`), `db.closeServedOrders` | «Cerrado» no significa «cobrado» | P1 | Se separa en fase 4 |
-| Cambios de estado sin validar (cualquier estado → cualquiera), sin historial ni autor | `PATCH /api/orders/:id/status` | Sin trazabilidad | P1 | Fase 3–4 |
+| Cambios de estado sin validar (cualquier estado → cualquiera), sin historial ni autor | `PATCH /api/orders/:id/status` | Sin trazabilidad | P1 | **En parte 23/11**: historial de estados con autor y auditoría; validación de transiciones en fase 4 |
 | Historial de pedidos no consultable (solo últimas 300, sin filtros) | `GET /api/orders` | No hay «últimos 7 días» ni histórico | P1 | Fase 4 |
-| PIN compartido: todos los usuarios tienen todos los permisos y nada identifica a quién hizo qué | `server/auth.js` | Sin control ni responsabilidad | P0 para fase 4–5 | Fase 3 |
+| PIN compartido: todos los usuarios tienen todos los permisos y nada identifica a quién hizo qué | `server/auth.js` | Sin control ni responsabilidad | P0 para fase 4–5 | **Corregido 23/11**: usuarios, roles y permisos en servidor |
 | Historial de impresión solo en memoria (se pierde al reiniciar) | `server/printer.js` | Sin registro de impresiones | P2 | Fase 7 |
 | `iconv-lite` se usa pero no está declarado (llega como dependencia de Express) | `server/printer.js`, `package.json` | Acentos en el ticket si cambia Express | P2 | Declararlo en la próxima instalación |
 | No hay información de IVA en productos ni pedidos | `server/db.js`, carta | Imposible facturar correctamente | P0 para fase 6 | Fase 2 (modelo) |
@@ -68,7 +68,7 @@ Prioridad: **P0** bloquea fases siguientes o pone en riesgo datos · **P1** nece
 
 | Funcionalidad | Qué falta | Prioridad |
 | --- | --- | --- |
-| Carta (admin) | Crear y borrar productos y categorías, ordenar, editar modificadores y extras con precio, área de preparación (cocina/barra), tipo de IVA | P1 (necesario para cargar la carta real) |
+| Carta (admin) | **Hecho 23/11**: altas, bajas, edición completa, IVA, área, opciones. Falta: extras con precio y reordenar arrastrando | P2 |
 | KDS | Separar cocina y barra, prioridad, pedidos atrasados, estado por línea | P1 |
 | Reservas | Estados (pendiente, confirmada, sentada, no presentada, cancelada), historial y autor | P2 |
 | Pedidos | Líneas con estado propio, anulaciones con motivo y autor, origen (QR / TPV) | P1 |

@@ -7,32 +7,51 @@ Documento vivo: se actualiza al final de cada sesión. Contexto: `ESTADO_Y_AUDIT
 | Fase | Estado |
 | --- | --- |
 | 1 · Auditoría y diagnóstico | Hecha (23/11/2026) |
-| 2 · Arquitectura y datos | Diseño hecho; implementación **bloqueada por D2** (motor de datos) |
-| 3 · Usuarios y permisos | Sin empezar (depende de la fase 2) |
-| 4 · TPV y operaciones | Sin empezar |
-| 5 · Pagos y caja | Sin empezar |
-| 6 · Facturación | Bloqueada por D6 (alcance legal) |
-| 7 · Integraciones | Bloqueada por credenciales y costes |
-| 8 · Estadísticas y experiencia | Sin empezar |
-| 9 · Pruebas y despliegue | Continua: cada fase añade pruebas |
+| 2 · Arquitectura y datos | Hecha: SQLite con migración verificada (23/11) |
+| 3 · Usuarios y permisos | Hecha: empleados, roles, permisos en servidor, historial de actividad (23/11) |
+| 4 · TPV y operaciones | Siguiente. Ya hecho de esta fase: carta con altas/bajas, QR seguros, origen y autor de cada pedido |
+| 5 · Pagos y caja | Pendiente (depende de la 4) |
+| 6 · Facturación | Estructura sin datos fiscales reales (decisión D6) |
+| 7 · Integraciones | Google: al publicar. WhatsApp: sin API (D10) |
+| 8 · Estadísticas y experiencia | Pendiente |
+| 9 · Pruebas y despliegue | Continua |
 
-## Decisiones que necesita el dueño
+## Decisiones del dueño (23/11)
 
-1. **D2** · ¿Migramos los datos de JSON a SQLite (incluido en Node, sin coste)? Antes: ejecutar `node -v` en el ordenador del local (hace falta 22.13 o superior).
-2. **D6** · ¿Sociedad o autónomo? ¿Hay ya un TPV fiscal? ¿El Fogón debe emitir tickets y facturas con valor fiscal?
-3. **D5** · ¿Tarjeta con el datáfono del banco registrada a mano en el TPV?
-4. **D7** · ¿Cuándo se pueden reimprimir los QR de las mesas para hacerlos seguros?
-5. Integraciones: ¿WhatsApp automático con coste por mensaje? ¿Acceso a la ficha de Google?
+1. D2 · SQLite: sí, dejando abierta una migración futura a una base de pago.
+2. D6 · Facturación: avanzar todo lo posible sin cargar todavía los datos fiscales.
+3. D5 · Tarjeta: datáfono del banco y registro manual en el TPV.
+4. D7 · QR: se reimprimen en unos días (los antiguos siguen funcionando hasta entonces).
+5. WhatsApp: sin coste; la reserva se guarda sola y el cliente confirma enviando el mensaje.
+6. Google: cuando la web sea pública.
 
 ## Sesiones
 
-### 23/11/2026 · Auditoría y correcciones urgentes
+### 23/11/2026 (tarde) · Fases 2 y 3, carta y QR seguros · rama `fase-2`
 
-1. **Completado:** auditoría completa; arquitectura, modelo de datos y plan; normativa e integraciones verificadas; dos correcciones P0.
-2. **Archivos:** `server/db.js` (ya no se borran comandas antiguas), `server/printer.js` (estados `SENT`/`DISABLED`/`FAILED`, reintentos sin duplicados, historial limitado a 200), `server/index.js` (reintentos en pedidos, error en la prueba de impresora), `client/src/components/admin/PrinterTest.jsx`, `client/src/views/KdsDisplay.jsx`, `tests/api.test.js`, `docs/*`.
-3. **Pruebas:** `npm test` 15/15 (2 nuevas: impresora real/fallida/desactivada con impresora TCP falsa; historial de más de 2.000 comandas). Navegador: 42/43 (el fallo es esperado: cambiar el PIN cierra la sesión del KDS) y 17/17 de las funciones del panel.
-4. **Pendiente:** decisiones D2, D5, D6, D7 e integraciones.
-5. **Siguiente tarea exacta:** con D2 aprobada, crear `server/db/` con el esquema SQLite, el importador desde `db.json` con verificación y pruebas de migración sobre una copia de los datos reales; sin tocar la versión que usa el local.
+1. **Completado:**
+   - SQLite (`node:sqlite`): migración automática desde `db.json` con verificación y sin tocar el original; recuperación si el archivo se daña; transacciones.
+   - Empleados con usuario y contraseña, 5 roles, permisos comprobados en cada ruta, PIN del local como acceso «Dueño (PIN)» desactivable, sesiones que se cierran al desactivar o cambiar contraseña.
+   - Historial de actividad de solo escritura (inicios de sesión, ajustes, carta, comandas, reservas, equipo, copias…) y pestaña Historial.
+   - Historial de estados en cada comanda con el empleado que lo cambió; origen del pedido (`qr` / `pos`).
+   - Carta: crear y dar de baja categorías y platos (sin borrar), editar todo, IVA, cocina/barra, opciones del plato.
+   - QR seguros: clave secreta por mesa (`/q/<clave>`), hoja de impresión A4, regenerar, modo compatibilidad.
+   - Pantalla de acceso con usuario o PIN; pestañas del panel según permisos.
+2. **Archivos nuevos:** `server/store.js`, `server/staff.js`, `client/src/hooks/useStaff.js`, `client/src/utils/tableKey.js`, `client/src/components/admin/{TeamTab,AuditTab,QrSection}.jsx`. **Cambiados:** `server/{db,auth,index,time}.js`, `client/src/{App.jsx,utils/api.js,components/StaffLogin.jsx,components/admin/{MenuTab,SettingsTab}.jsx,views/{AdminDashboard,TableOrderPortal}.jsx}`, `package.json` (scripts con `--experimental-sqlite`, Node ≥ 22.12), `tests/api.test.js`.
+3. **Pruebas:** `npm test` 23/23 (nuevas: migración desde db.json, base dañada, historial > 2.000, empleados y permisos por rol, sesión cerrada al desactivar, PIN desactivable, auditoría inalterable, carta, QR seguros). Navegador: 42/43 (fallo esperado), panel 17/17, equipo y roles 19/19, QR 10/10. Carga: 40 móviles, 60 pedidos simultáneos guardados en SQLite sin duplicados. Migración probada con una copia de los datos reales del local. QR real generado con la librería instalada en el ordenador del local.
+4. **Pendiente:** confirmar `node -v` en el ordenador del local (≥ 22.12) antes de instalar esta versión; reimprimir los QR y desactivar los antiguos; crear los usuarios del equipo.
+5. **Siguiente tarea exacta:** Fase 4 · TPV: cuenta por mesa (`checks`), pedido desde el TPV por el camarero, separar comandas de cocina y barra en el KDS (por `area`), validar transiciones de estado y anular líneas con motivo.
+
+### 23/11/2026 (mañana) · Auditoría y correcciones urgentes
+
+- Auditoría completa y documentación en `docs/`. Corregido: ya no se borran comandas antiguas; la impresora distingue enviado / desactivado / fallido. `npm test` 15/15.
+
+## Instalar esta versión en el ordenador del local
+
+1. `node -v` debe mostrar 22.12 o superior. Si no, instalar la versión LTS de https://nodejs.org.
+2. Parar el servidor (Ctrl+C), copiar los archivos nuevos, `npm run build` y `npm start`.
+3. Al arrancar verás «✅ Datos migrados de db.json a fogon.sqlite». `db.json` queda intacto como copia.
+4. Volver atrás: Admin → Ajustes → Descargar copia actual, instalar la versión anterior y restaurar esa copia.
 
 ## Cómo probar
 

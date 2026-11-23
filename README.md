@@ -12,7 +12,7 @@ Web pública del restaurante (portada, carta, reservas) y sistema de sala: plano
 
 ## 🚀 Puesta en marcha
 
-**Requisitos:** Node.js 22.9 o superior.
+**Requisitos:** Node.js 22.12 o superior (los datos se guardan en SQLite, incluido en Node; no hay que instalar nada más). Comprueba tu versión con `node -v`.
 
 ```bash
 cd "C:\Users\ramir\.gemini\antigravity\scratch\el-fogon-app"
@@ -33,6 +33,15 @@ npm start
 
 > ⚠️ Después de cambiar código, vuelve a ejecutar `npm run build` antes de `npm start`; si no, verás la versión anterior.
 
+### Usuarios del equipo
+* Cada persona entra con **su usuario y contraseña** (Admin → 👥 Equipo). Roles: Administrador, Encargado, Camarero, Cocina y Barra; los permisos los comprueba el servidor.
+* Todo queda en **Admin → 📜 Historial** (quién hizo qué y cuándo). Ese registro no se puede modificar ni borrar.
+* Cuando todos tengan usuario, desactiva el PIN compartido en Ajustes → PIN del personal.
+
+### QR de las mesas
+* Admin → 🗺️ Plano → **QR de las mesas**: escribe la dirección con la que entran los móviles y pulsa «Imprimir QR de todas las mesas».
+* Cada QR lleva una clave secreta de su mesa. Cuando estén colocados, desactiva «Aceptar también los QR antiguos».
+
 ### PIN del personal
 * **En desarrollo, el PIN es `1234`.** La pantalla de acceso lo muestra mientras no lo cambies.
 * Para cambiarlo: **Admin → Ajustes → PIN del personal** (se guarda cifrado).
@@ -52,8 +61,9 @@ npm start
 | `/bienvenido` (alias `/plano`) | **QR de la entrada**: estado de las mesas en directo para sentarse y pedir. Avisa si la mesa tiene una reserva más tarde. |
 | `/carta` | Carta completa (solo consulta). |
 | `/m/04` (`/m/:numero`) | **QR de mesa**: carta, pedido compartido en tiempo real, seguimiento por pasos, «Llamar al camarero» y «Pedir la cuenta». |
-| `/kds` | Pantalla de cocina/barra (requiere PIN): comandas en vivo y avisos de las mesas. Toca «Activar sonido» al abrirla en la tablet. |
-| `/admin` | Panel del dueño (requiere PIN): plano, reservas, **carta (precios, agotados, alérgenos)** y ajustes. |
+| `/q/<clave>` | QR de una mesa: abre la carta de esa mesa para pedir. |
+| `/kds` | Pantalla de cocina/barra (requiere acceso de personal): comandas en vivo y avisos de las mesas. Toca «Activar sonido» al abrirla en la tablet. |
+| `/admin` | Panel (pestañas según el rol): plano y QR, reservas, carta (altas, bajas, precios, fotos, alérgenos, IVA), equipo, historial y ajustes. |
 | `/cancelar/:id` | Enlace secreto que recibe el cliente para cancelar su reserva. |
 | `/aviso-legal`, `/privacidad`, `/cookies` | Textos legales (se rellenan con los datos de Admin → Ajustes). |
 
@@ -82,7 +92,7 @@ La parte pública está en **español (España) e inglés**; el idioma se detect
 ```bash
 npm test
 ```
-Arranca el servidor con datos temporales (no toca los reales) y comprueba PIN, pedidos, precios, reservas solapadas, plano, fotos, copias y recuperación.
+Arranca el servidor con datos temporales (no toca los reales) y comprueba acceso y permisos por rol, pedidos y precios, QR seguros, reservas solapadas, plano, carta, fotos, copias, migración a SQLite, recuperación e historial de actividad.
 
 ## ☁️ Publicar (Railway o Render)
 

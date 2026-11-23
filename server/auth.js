@@ -7,6 +7,7 @@
 //   3. En desarrollo, si no hay ninguno: 1234
 
 const crypto = require('crypto');
+const { permissionsOf, can } = require('./staff');
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, se renueva con el uso
 const RENEW_AFTER_MS = 12 * 60 * 60 * 1000;      // renovar como mucho cada 12 h
@@ -15,7 +16,7 @@ const FAIL_WINDOW_MS = 10 * 60 * 1000;    // ...cada 10 minutos por IP
 
 // Sesiones: se guarda solo el hash del token (nunca el token) y su caducidad.
 // Se persisten en la base de datos para que un reinicio no cierre la sesión del KDS en pleno servicio.
-const tokens = new Map();   // sha256(token) -> expiresAt
+const tokens = new Map();   // sha256(token) -> { exp, emp } (emp = id del empleado o 'pin')
 let store = { load: () => [], save: () => {} };
 
 const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
@@ -24,13 +25,14 @@ function setSessionStore(s) {
   store = s;
   const now = Date.now();
   for (const it of store.load() || []) {
-    if (it && typeof it.h === 'string' && it.exp > now) tokens.set(it.h, it.exp);
+    // Las sesiones antiguas (sin empleado) se abrieron con el PIN del local
+    if (it && typeof it.h === 'string' && it.exp > now) tokens.set(it.h, { exp: it.exp, emp: it.emp || 'pin' });
   }
 }
 
 function persist() {
   try {
-    store.save([...tokens].map(([h, exp]) => ({ h, exp })));
+    store.save([...tokens].map(([h, v]) => ({ h, exp: v.exp, emp: v.emp })));
   } catch (err) {
     console.error('No se pudieron guardar las sesiones:', err.message);
   }
@@ -41,6 +43,16 @@ const DEV_PIN = '1234';
 
 let getStoredHash = () => null; // lo inyecta index.js (lee de la base de datos)
 function setStoredHashGetter(fn) { getStoredHash = fn; }
+
+// Identidades de empleados (las inyecta index.js)
+let resolveEmployee = (id) => (id === 'pin' ? { id: 'pin', name: 'Dueño (PIN)', role: 'admin', active: true } : null);
+let authenticateEmployee = () => null;
+let pinLoginAllowed = () => true;
+function setEmployeeProvider({ resolve, authenticate, allowPin }) {
+  if (resolve) resolveEmployee = resolve;
+  if (authenticate) authenticateEmployee = authenticate;
+  if (allowPin) pinLoginAllowed = allowPin;
+}
 
 function hashPin(pin) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -83,43 +95,60 @@ function checkPin(pin) {
   }
 }
 
-function login(pin, ip = 'unknown') {
+// Acceso con { pin } (PIN compartido del local) o { username, password } (empleado)
+function login(creds, ip = 'unknown') {
   const now = Date.now();
   const rec = attempts.get(ip);
   if (rec && now - rec.first < FAIL_WINDOW_MS && rec.count >= MAX_FAILED) {
     return { ok: false, locked: true, retryAfterSec: Math.ceil((rec.first + FAIL_WINDOW_MS - now) / 1000) };
   }
+  if (typeof creds === 'string') creds = { pin: creds };
 
-  if (!checkPin(pin)) {
+  let identity = null;
+  let pinDisabled = false;
+  if (creds && creds.username) {
+    identity = authenticateEmployee(String(creds.username), String(creds.password || ''));
+  } else if (creds && checkPin(String(creds.pin ?? ''))) {
+    if (pinLoginAllowed()) identity = resolveEmployee('pin');
+    else pinDisabled = true;
+  }
+
+  if (!identity) {
     if (!rec || now - rec.first >= FAIL_WINDOW_MS) attempts.set(ip, { count: 1, first: now });
     else rec.count += 1;
-    return { ok: false };
+    return { ok: false, pinDisabled };
   }
 
   attempts.delete(ip);
   const token = crypto.randomBytes(32).toString('hex');
-  tokens.set(hashToken(token), now + TOKEN_TTL_MS);
+  tokens.set(hashToken(token), { exp: now + TOKEN_TTL_MS, emp: identity.id });
   persist();
-  return { ok: true, token, expiresAt: now + TOKEN_TTL_MS };
+  return { ok: true, token, expiresAt: now + TOKEN_TTL_MS, staff: describe(identity) };
 }
 
+const describe = (who) => ({ id: who.id, name: who.name, role: who.role, permissions: permissionsOf(who.role) });
+
+// Devuelve la identidad del empleado o null (sesión caducada, empleado desactivado…)
 function verify(token) {
-  if (!token || typeof token !== 'string' || token.length > 200) return false;
+  if (!token || typeof token !== 'string' || token.length > 200) return null;
   const h = hashToken(token);
-  const exp = tokens.get(h);
-  if (!exp) return false;
+  const s = tokens.get(h);
+  if (!s) return null;
   const now = Date.now();
-  if (exp < now) {
+  if (s.exp < now) {
     tokens.delete(h);
     persist();
-    return false;
+    return null;
   }
+  if (s.emp === 'pin' && !pinLoginAllowed()) return null;
+  const who = resolveEmployee(s.emp);
+  if (!who || !who.active) return null;
   // Renovación deslizante: mientras se use, no caduca
-  if (now + TOKEN_TTL_MS - exp > RENEW_AFTER_MS) {
-    tokens.set(h, now + TOKEN_TTL_MS);
+  if (now + TOKEN_TTL_MS - s.exp > RENEW_AFTER_MS) {
+    s.exp = now + TOKEN_TTL_MS;
     persist();
   }
-  return true;
+  return describe(who);
 }
 
 function revoke(token) {
@@ -134,33 +163,53 @@ function revokeAllExcept(keep) {
   persist();
 }
 
+// Cerrar las sesiones de un empleado (desactivado, contraseña o rol cambiados)
+function revokeEmployee(empId) {
+  let changed = false;
+  for (const [h, v] of tokens) if (v.emp === empId) { tokens.delete(h); changed = true; }
+  if (changed) persist();
+}
+
 function tokenFromReq(req) {
   const h = req.headers.authorization || '';
   return h.startsWith('Bearer ') ? h.slice(7) : null;
 }
 
 function requireStaff(req, res, next) {
-  if (verify(tokenFromReq(req))) {
+  const who = verify(tokenFromReq(req));
+  if (who) {
     req.isStaff = true;
+    req.staff = who;
     return next();
   }
   return res.status(401).json({ error: 'No autorizado. Inicia sesión como personal.' });
 }
 
+// Exige sesión y un permiso concreto (comprobado aquí, no en el navegador)
+function requirePermission(perm) {
+  return (req, res, next) => requireStaff(req, res, () => {
+    if (can(req.staff.role, perm)) return next();
+    return res.status(403).json({ error: 'Tu usuario no tiene permiso para esta acción.' });
+  });
+}
+
 function optionalStaff(req, res, next) {
-  req.isStaff = verify(tokenFromReq(req));
+  const who = verify(tokenFromReq(req));
+  req.isStaff = !!who;
+  req.staff = who || null;
   next();
 }
 
 setInterval(() => {
   const now = Date.now();
   let changed = false;
-  for (const [h, exp] of tokens) if (exp < now) { tokens.delete(h); changed = true; }
+  for (const [h, v] of tokens) if (v.exp < now) { tokens.delete(h); changed = true; }
   if (changed) persist();
   for (const [ip, rec] of attempts) if (now - rec.first >= FAIL_WINDOW_MS) attempts.delete(ip);
 }, 10 * 60 * 1000).unref();
 
 module.exports = {
-  login, verify, revoke, revokeAllExcept, tokenFromReq, requireStaff, optionalStaff,
+  login, verify, revoke, revokeAllExcept, revokeEmployee, tokenFromReq, requireStaff, requirePermission, optionalStaff,
+  setEmployeeProvider,
   isUsingDevPin, pinSource, checkPin, hashPin, setStoredHashGetter, setSessionStore, DEV_PIN
 };

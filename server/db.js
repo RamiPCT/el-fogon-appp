@@ -1,9 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+const store = require('./store');
+const crypto = require('crypto');
+
+// Clave secreta del QR de cada mesa (72 bits, no se puede adivinar)
+const newQrKey = () => crypto.randomBytes(9).toString('base64url');
 
 // En producción (Railway/Render) apunta DATA_DIR a un volumen persistente.
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
+const DB_FILE = path.join(DATA_DIR, 'db.json');          // formato antiguo (solo se lee para migrar)
+const SQLITE_FILE = path.join(DATA_DIR, 'fogon.sqlite');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const MAX_BACKUPS = 40; // ~ 2 semanas con copia al arrancar + diaria
@@ -40,7 +46,10 @@ const DEFAULT_SETTINGS = {
   googleReviewUrl: '',
   printerEnabled: false,
   printerIp: '192.168.1.100',
-  printerPort: 9100
+  printerPort: 9100,
+  allowPinLogin: true,       // permitir entrar con el PIN compartido (además de los usuarios)
+  qrLegacyEnabled: true,     // aceptar los QR antiguos (solo número de mesa) hasta reimprimirlos
+  publicUrl: ''              // dirección de la web que llevan los QR (p. ej. http://192.168.1.139:3001)
 };
 
 // Textos en inglés para la carta de ejemplo (se aplican solo si faltan)
@@ -172,38 +181,132 @@ const INITIAL_DATA = {
   settings: { ...DEFAULT_SETTINGS }
 };
 
+// Colecciones que se guardan como filas en `docs`. Las grandes (pedidos, reservas) no guardan
+// posición: se ordenan por fecha al cargar y solo se reescriben las filas que cambian.
+const LIST_COLLS = ['sectors', 'tables', 'categories', 'products', 'orders', 'reservations', 'sessions'];
+const BIG_COLLS = new Set(['orders', 'reservations']);
+const KV_KEYS = ['settings', 'floor'];
+const itemId = (coll, it, i) => String(it.id ?? it.h ?? `${coll}-${i}`);
+
 class Database {
   constructor() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(DB_FILE)) {
-      this.data = JSON.parse(JSON.stringify(INITIAL_DATA));
-      this.migrate();
-      this.save();
-    } else {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    this.cache = {};          // coll -> Map(id -> json) de lo que hay guardado
+    this.dirty = {};          // coll -> Set(id) para colecciones grandes
+    this.fullSync = false;    // fuerza comparar todas las filas en el próximo guardado
+
+    const existed = fs.existsSync(SQLITE_FILE);
+    if (existed) {
+      let ok = false;
       try {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        this.data = JSON.parse(raw);
-        this.migrate();
-        this.save();
-        this.backup('arranque');
-      } catch (err) {
-        // No sobrescribimos un archivo dañado: lo apartamos y recuperamos la última copia buena
-        const broken = DB_FILE.replace(/\.json$/, `.corrupto-${Date.now()}.json`);
-        try { fs.copyFileSync(DB_FILE, broken); } catch (_) { /* ignorar */ }
-        const recovered = this.loadLatestValidBackup();
-        if (recovered) {
-          console.error(`⚠️  La base de datos estaba dañada (copia en ${broken}). Recuperada desde la copia de seguridad ${recovered.name}.`);
-          this.data = recovered.data;
-        } else {
-          console.error(`⚠️  La base de datos estaba dañada (copia en ${broken}) y no hay copias de seguridad. Se reinicia con valores iniciales.`, err);
-          this.data = JSON.parse(JSON.stringify(INITIAL_DATA));
-        }
+        this.sql = store.open(SQLITE_FILE);
+        ok = store.integrityOk(this.sql);
+      } catch (_) {
+        ok = false;
+      }
+      if (!ok) {
+        try { this.sql?.close(); } catch (_) { /* ya cerrada */ }
+        const broken = SQLITE_FILE.replace(/\.sqlite$/, `.corrupto-${Date.now()}.sqlite`);
+        fs.renameSync(SQLITE_FILE, broken);
+        for (const ext of ['-wal', '-shm']) { try { fs.renameSync(SQLITE_FILE + ext, broken + ext); } catch (_) { /* puede no existir */ } }
+        console.error(`⚠️  La base de datos estaba dañada (apartada en ${broken}). Se recupera desde la última copia de seguridad.`);
+        this.createFrom(this.loadLatestValidBackup()?.data || null, 'recuperación');
+      } else {
+        store.migrateSchema(this.sql);
+        this.loadFromSql();
         this.migrate();
         this.save();
       }
+    } else if (fs.existsSync(DB_FILE)) {
+      this.migrateFromJson();
+    } else {
+      this.createFrom(null, 'nueva');
     }
+    this.backup('arranque');
+  }
+
+  // Base de datos nueva (vacía, o a partir de una copia)
+  createFrom(data, reason) {
+    this.sql = store.open(SQLITE_FILE);
+    store.migrateSchema(this.sql);
+    this.data = Database.isValidData(data) ? JSON.parse(JSON.stringify(data)) : JSON.parse(JSON.stringify(INITIAL_DATA));
+    if (!Database.isValidData(data) && reason === 'recuperación') {
+      console.error('⚠️  No hay copias de seguridad válidas: se empieza con los valores iniciales.');
+    }
+    this.migrate();
+    this.fullSync = true;
+    this.save();
+    this.setMeta('created_reason', reason);
+  }
+
+  // Migración única desde db.json: no se modifica ni se borra el archivo original.
+  // Si los datos importados no cuadran, se deshace todo y el servidor no arranca.
+  migrateFromJson() {
+    let data;
+    const raw = fs.readFileSync(DB_FILE, 'utf-8');
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      const recovered = this.loadLatestValidBackup();
+      console.error(`⚠️  db.json estaba dañado. Se migra desde la copia ${recovered ? recovered.name : '(ninguna)'}.`);
+      data = recovered ? recovered.data : null;
+    }
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    fs.writeFileSync(path.join(BACKUP_DIR, `db-${stamp}-antes-de-migrar.json`), raw, 'utf-8');
+
+    this.sql = store.open(SQLITE_FILE);
+    store.migrateSchema(this.sql);
+    this.data = Database.isValidData(data) ? data : JSON.parse(JSON.stringify(INITIAL_DATA));
+    this.migrate();
+    const expected = this.summary();
+    this.fullSync = true;
+    try {
+      this.save();
+      // Verificación: se vuelve a leer todo de SQLite y se compara
+      const check = new Database.Reader(this.sql).summary();
+      const diff = Object.keys(expected).filter(k => expected[k] !== check[k]);
+      if (diff.length) throw new Error(`Los datos migrados no coinciden (${diff.join(', ')})`);
+      this.setMeta('migrated_from_json_at', new Date().toISOString());
+      console.log(`✅ Datos migrados de db.json a fogon.sqlite (${expected.orders} pedidos, ${expected.reservations} reservas, ${expected.products} productos). db.json queda intacto como copia.`);
+    } catch (err) {
+      this.sql.close();
+      for (const ext of ['', '-wal', '-shm']) { try { fs.unlinkSync(SQLITE_FILE + ext); } catch (_) { /* nada */ } }
+      console.error(`\n❌ No se pudo migrar la base de datos: ${err.message}. db.json no se ha tocado.\n`);
+      throw err;
+    }
+  }
+
+  // Recuento usado para verificar la migración
+  summary() {
+    const d = this.data;
+    const total = (d.orders || []).reduce((s, o) => s + Math.round((Number(o.total) || 0) * 100), 0);
+    return {
+      tables: d.tables.length, products: d.products.length, categories: d.categories.length,
+      orders: d.orders.length, reservations: d.reservations.length, ordersTotalCents: total,
+      settings: JSON.stringify(d.settings), floor: JSON.stringify(d.floor)
+    };
+  }
+
+  setMeta(key, value) {
+    this.sql.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
+  }
+
+  getMeta(key) {
+    return this.sql.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
+  }
+
+  loadFromSql() {
+    this.data = new Database.Reader(this.sql).read();
+    for (const coll of LIST_COLLS) {
+      this.cache[coll] = new Map(this.data[coll].map((it, i) => [itemId(coll, it, i), BIG_COLLS.has(coll) ? JSON.stringify(it) : `${i}|${JSON.stringify(it)}`]));
+    }
+    for (const k of KV_KEYS) this.cache[`kv:${k}`] = JSON.stringify(this.data[k]);
+  }
+
+  // Marca un elemento de una colección grande como modificado
+  touch(coll, id) {
+    (this.dirty[coll] ||= new Set()).add(String(id));
   }
 
   // Completa campos nuevos en bases de datos antiguas sin perder información
@@ -227,15 +330,22 @@ class Database {
         if (!p.description_en) p.description_en = en.description_en;
       }
     });
+    d.products.forEach(p => {
+      if (p.vatRate === undefined) p.vatRate = 10;
+    });
     d.categories.forEach(c => {
+      if (!c.area) c.area = /coctel|bebida|bar|drink/i.test(`${c.id} ${c.name}`) ? 'bar' : 'kitchen';
       const en = CATEGORY_EN[c.id];
       if (en) {
         if (!c.name_en) c.name_en = en.name_en;
         if (!c.description_en) c.description_en = en.description_en;
       }
     });
-    // Los tokens QR antiguos ya no se usan
-    d.tables.forEach(t => { delete t.qrToken; });
+    // Los tokens QR antiguos ya no se usan; cada mesa tiene su clave de QR
+    d.tables.forEach(t => {
+      delete t.qrToken;
+      if (!t.qrKey) t.qrKey = newQrKey();
+    });
   }
 
   // ---------------- Copias de seguridad ----------------
@@ -300,6 +410,7 @@ class Database {
     this.data = JSON.parse(JSON.stringify(data));
     this.data.sessions = keepSessions || [];
     this.migrate();
+    this.fullSync = true;
     if (keepPin) this.data.settings.staffPinHash = keepPin;
     else delete this.data.settings.staffPinHash;
     this.save();
@@ -313,19 +424,55 @@ class Database {
     return copy;
   }
 
-  // Escritura atómica: si el proceso se corta a mitad, el archivo anterior queda intacto
+  // Guarda en una transacción solo lo que ha cambiado desde el último guardado
   save() {
-    const json = JSON.stringify(this.data, null, 2);
-    const tmp = `${DB_FILE}.tmp`;
-    try {
-      fs.writeFileSync(tmp, json, 'utf-8');
-      fs.renameSync(tmp, DB_FILE);
-    } catch (err) {
-      // En Windows el renombrado puede fallar si el antivirus o un editor tiene el archivo abierto:
-      // se escribe directamente para no perder el pedido o la reserva.
-      fs.writeFileSync(DB_FILE, json, 'utf-8');
-      try { fs.unlinkSync(tmp); } catch (_) { /* puede no existir */ }
-    }
+    store.tx(this.sql, () => {
+      const upsert = this.sql.prepare('INSERT INTO docs (coll, id, pos, data) VALUES (?, ?, ?, ?) ON CONFLICT(coll, id) DO UPDATE SET pos = excluded.pos, data = excluded.data');
+      const del = this.sql.prepare('DELETE FROM docs WHERE coll = ? AND id = ?');
+      for (const coll of LIST_COLLS) {
+        const list = this.data[coll] || [];
+        const cache = this.cache[coll] ||= new Map();
+        const big = BIG_COLLS.has(coll) && !this.fullSync;
+        if (big) {
+          // Solo las filas marcadas, las nuevas y las borradas
+          const ids = new Set();
+          const dirty = this.dirty[coll] || new Set();
+          list.forEach((it, i) => {
+            const id = itemId(coll, it, i);
+            ids.add(id);
+            if (!cache.has(id) || dirty.has(id)) {
+              const json = JSON.stringify(it);
+              if (cache.get(id) !== json) { upsert.run(coll, id, 0, json); cache.set(id, json); }
+            }
+          });
+          if (ids.size !== cache.size) for (const id of [...cache.keys()]) if (!ids.has(id)) { del.run(coll, id); cache.delete(id); }
+          dirty.clear();
+        } else {
+          const ids = new Set();
+          list.forEach((it, i) => {
+            const id = itemId(coll, it, i);
+            ids.add(id);
+            const json = JSON.stringify(it);
+            const key = BIG_COLLS.has(coll) ? json : `${i}|${json}`;
+            if (cache.get(id) !== key) { upsert.run(coll, id, BIG_COLLS.has(coll) ? 0 : i, json); cache.set(id, key); }
+          });
+          for (const id of [...cache.keys()]) if (!ids.has(id)) { del.run(coll, id); cache.delete(id); }
+        }
+      }
+      for (const k of KV_KEYS) {
+        const json = JSON.stringify(this.data[k] ?? null);
+        if (this.cache[`kv:${k}`] !== json) {
+          this.sql.prepare('INSERT INTO kv (key, data) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET data = excluded.data').run(k, json);
+          this.cache[`kv:${k}`] = json;
+        }
+      }
+    });
+    this.fullSync = false;
+  }
+
+  // Ejecutar varias operaciones como una sola (todo o nada)
+  transaction(fn) {
+    return store.tx(this.sql, fn);
   }
 
   getTables() {
@@ -358,6 +505,7 @@ class Database {
           x: pos.x !== undefined ? pos.x : (existing.x || 50),
           y: pos.y !== undefined ? pos.y : (existing.y || 50),
           shape: pos.shape || existing.shape || 'rect',
+          qrKey: existing.qrKey || newQrKey(),
           capacity: pos.capacity || existing.capacity || 4,
           status: pos.status || existing.status || 'AVAILABLE'
         };
@@ -365,6 +513,19 @@ class Database {
       this.save();
     }
     return this.data.tables;
+  }
+
+  getTableByQrKey(key) {
+    if (typeof key !== 'string' || key.length < 8) return null;
+    return this.data.tables.find(t => t.qrKey && t.qrKey.length === key.length && crypto.timingSafeEqual(Buffer.from(t.qrKey), Buffer.from(key))) || null;
+  }
+
+  regenerateQrKey(id) {
+    const t = this.data.tables.find(x => x.id === id || x.number === id);
+    if (!t) return null;
+    t.qrKey = newQrKey();
+    this.save();
+    return t;
   }
 
   getReservations() {
@@ -381,11 +542,13 @@ class Database {
     return res;
   }
 
-  cancelReservation(id) {
+  cancelReservation(id, byEmployeeId = null) {
     const res = this.data.reservations.find(r => r.id === id);
     if (res) {
       res.status = 'CANCELLED';
       res.cancelledAt = new Date().toISOString();
+      res.cancelledBy = byEmployeeId || 'cliente';
+      this.touch('reservations', res.id);
       const tbl = this.data.tables.find(t => t.id === res.tableId || t.number === res.tableNumber);
       if (tbl && tbl.status === 'RESERVED_SOON') {
         tbl.status = 'AVAILABLE';
@@ -406,6 +569,7 @@ class Database {
         r.customerPhone = '';
         r.notes = '';
         r.anonymized = true;
+        this.touch('reservations', r.id);
         count += 1;
       }
     });
@@ -425,8 +589,28 @@ class Database {
     return prod;
   }
 
+  addProduct(prod) {
+    this.data.products.push(prod);
+    this.save();
+    return prod;
+  }
+
   getCategories() {
     return this.data.categories;
+  }
+
+  addCategory(cat) {
+    this.data.categories.push(cat);
+    this.save();
+    return cat;
+  }
+
+  updateCategory(id, updates) {
+    const cat = this.data.categories.find(c => c.id === id);
+    if (!cat) return null;
+    Object.assign(cat, updates);
+    this.save();
+    return cat;
   }
 
   getOrders() {
@@ -455,10 +639,13 @@ class Database {
     return newOrder;
   }
 
-  updateOrderStatus(orderId, status) {
+  updateOrderStatus(orderId, status, by = null) {
     const ord = this.data.orders.find(o => o.id === orderId || o.orderNumber === orderId);
     if (ord) {
+      // Historial de estados: quién y cuándo
+      (ord.statusHistory ||= []).push({ from: ord.status, to: status, at: new Date().toISOString(), by: by ? { id: by.id, name: by.name } : null });
       ord.status = status;
+      this.touch('orders', ord.id);
       this.save();
       return ord;
     }
@@ -471,6 +658,7 @@ class Database {
     this.data.orders.forEach(o => {
       if ((o.tableId === table.id || o.tableNumber === table.number) && o.status === 'SERVED') {
         o.status = 'CLOSED';
+        this.touch('orders', o.id);
         changed = true;
       }
     });
@@ -506,6 +694,30 @@ class Database {
     return this.data.settings;
   }
 }
+
+// Lectura completa de SQLite a la estructura de siempre
+Database.Reader = class {
+  constructor(sql) { this.sql = sql; }
+  read() {
+    const data = {};
+    for (const coll of LIST_COLLS) {
+      const rows = this.sql.prepare('SELECT data FROM docs WHERE coll = ? ORDER BY pos, id').all(coll);
+      data[coll] = rows.map(r => JSON.parse(r.data));
+      if (BIG_COLLS.has(coll)) data[coll].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    }
+    for (const k of KV_KEYS) {
+      const row = this.sql.prepare('SELECT data FROM kv WHERE key = ?').get(k);
+      data[k] = row ? JSON.parse(row.data) : undefined;
+    }
+    return data;
+  }
+  summary() {
+    const d = this.read();
+    const db = Object.create(Database.prototype);
+    db.data = d;
+    return db.summary();
+  }
+};
 
 const instance = new Database();
 instance.ALLERGENS = ALLERGENS;

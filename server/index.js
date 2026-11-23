@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 const db = require('./db');
 const printer = require('./printer');
 const auth = require('./auth');
+const staffMod = require('./staff');
 const time = require('./time');
 
 // --------------------------------------------------------------------------
@@ -15,6 +16,14 @@ const time = require('./time');
 const IS_PROD = process.env.NODE_ENV === 'production';
 auth.setStoredHashGetter(() => db.getSettings().staffPinHash || null);
 auth.setSessionStore({ load: () => db.getSessions(), save: (list) => db.setSessions(list) });
+const staff = staffMod.createStaff(db);
+auth.setEmployeeProvider({
+  resolve: staff.resolve,
+  authenticate: staff.authenticate,
+  allowPin: () => db.getSettings().allowPinLogin !== false
+});
+const P = auth.requirePermission;
+const audit = staff.audit;
 
 // Un error inesperado se registra pero no tumba el servidor en pleno servicio
 process.on('unhandledRejection', (err) => console.error('⚠️  Promesa rechazada sin gestionar:', err));
@@ -87,6 +96,8 @@ const reservationLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 30, messag
 
 function publicBaseUrl(req) {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
+  const fromSettings = db.getSettings().publicUrl;
+  if (fromSettings) return fromSettings.replace(/\/$/, '');
   return `${req.protocol}://${req.get('host')}`;
 }
 
@@ -135,8 +146,9 @@ function enrichTable(table, { full = false } = {}) {
   }
   if (isSoon && status !== 'OCCUPIED') status = 'RESERVED_SOON';
 
-  const { qrToken, ...rest } = table;
-  return { ...rest, status, nextReservation };
+  // La clave del QR solo la ve el personal (para imprimirlo)
+  const { qrToken, qrKey, ...rest } = table;
+  return { ...rest, ...(full ? { qrKey } : {}), status, nextReservation };
 }
 
 const publicTables = () => db.getTables().map(t => enrichTable(t));
@@ -155,7 +167,7 @@ const PUBLIC_SETTING_KEYS = [
 ];
 const EDITABLE_SETTING_KEYS = [
   ...PUBLIC_SETTING_KEYS, 'soonWindowMinutes', 'reservationDurationMinutes',
-  'printerEnabled', 'printerIp', 'printerPort'
+  'printerEnabled', 'printerIp', 'printerPort', 'allowPinLogin', 'qrLegacyEnabled', 'publicUrl'
 ];
 
 function pick(obj, keys) {
@@ -173,12 +185,15 @@ function sanitizeSettings(body) {
     if (['bufferMinutes', 'soonWindowMinutes', 'reservationDurationMinutes', 'printerPort'].includes(k)) {
       const n = Number(v);
       if (Number.isFinite(n) && n >= 0 && n <= 65535) out[k] = Math.round(n);
-    } else if (k === 'printerEnabled') {
+    } else if (['printerEnabled', 'allowPinLogin', 'qrLegacyEnabled'].includes(k)) {
       out[k] = Boolean(v);
     } else if (k === 'ownerPhone' || k === 'publicPhone') {
       out[k] = str(v, 30);
     } else if (k === 'openingHours' || k === 'openingHours_en') {
       out[k] = str(v, 600);
+    } else if (k === 'publicUrl') {
+      const u = str(v, 200).replace(/\/+$/, '');
+      if (u === '' || /^https?:\/\/[^\s/]+$/i.test(u)) out[k] = u;
     } else if (k === 'instagram') {
       out[k] = str(v, 60).replace(/^@/, '');
     } else if (k === 'bookingStart' || k === 'bookingEnd') {
@@ -196,32 +211,42 @@ function sanitizeSettings(body) {
 // AUTENTICACIÓN DEL PERSONAL
 // --------------------------------------------------------------------------
 app.post('/api/auth/login', (req, res) => {
-  const result = auth.login(String(req.body?.pin ?? ''), req.ip);
+  const b = req.body || {};
+  const byUser = !!b.username;
+  const result = auth.login(byUser ? { username: str(b.username, 40), password: String(b.password ?? '').slice(0, 200) } : { pin: String(b.pin ?? '') }, req.ip);
   if (result.locked) {
     res.setHeader('Retry-After', String(result.retryAfterSec));
     return res.status(429).json({ error: `Demasiados intentos. Prueba de nuevo en ${Math.ceil(result.retryAfterSec / 60)} min.` });
   }
-  if (!result.ok) return res.status(401).json({ error: 'PIN incorrecto' });
-  res.json({ token: result.token, expiresAt: result.expiresAt });
+  if (!result.ok) {
+    audit(req, 'auth.login_failed', { entity: 'employee', entityId: byUser ? str(b.username, 40) : 'pin', result: 'error' });
+    if (result.pinDisabled) return res.status(403).json({ error: 'El acceso con PIN está desactivado. Entra con tu usuario.' });
+    return res.status(401).json({ error: byUser ? 'Usuario o contraseña incorrectos' : 'PIN incorrecto' });
+  }
+  req.staff = result.staff;
+  audit(req, 'auth.login', { entity: 'employee', entityId: result.staff.id });
+  res.json({ token: result.token, expiresAt: result.expiresAt, staff: result.staff });
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', auth.optionalStaff, (req, res) => {
+  if (req.staff) audit(req, 'auth.logout', { entity: 'employee', entityId: req.staff.id });
   auth.revoke(auth.tokenFromReq(req));
   res.json({ success: true });
 });
 
 app.get('/api/auth/check', auth.requireStaff, (req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, staff: req.staff });
 });
 
 // Indica si se está usando el PIN de desarrollo (para mostrarlo en la pantalla de acceso)
 app.get('/api/auth/info', (req, res) => {
   const source = auth.pinSource();
-  res.json({ source, devPin: source === 'dev' ? auth.DEV_PIN : null });
+  const pinAllowed = db.getSettings().allowPinLogin !== false;
+  res.json({ source, devPin: source === 'dev' && pinAllowed ? auth.DEV_PIN : null, pinAllowed, hasEmployees: staff.list().some(e => e.active) });
 });
 
 // Cambiar el PIN desde Admin → Ajustes
-app.put('/api/auth/pin', auth.requireStaff, (req, res) => {
+app.put('/api/auth/pin', P('settings.manage'), (req, res) => {
   const { currentPin, newPin } = req.body || {};
   if (auth.pinSource() === 'env') {
     return res.status(409).json({ error: 'El PIN está fijado con la variable STAFF_PIN del servidor. Cámbialo allí.' });
@@ -231,6 +256,7 @@ app.put('/api/auth/pin', auth.requireStaff, (req, res) => {
   if (String(newPin) === auth.DEV_PIN) return res.status(400).json({ error: 'Elige un PIN distinto de 1234' });
   db.updateSettings({ staffPinHash: auth.hashPin(String(newPin)) });
   auth.revokeAllExcept(auth.tokenFromReq(req));
+  audit(req, 'auth.pin_changed', { entity: 'settings' });
   res.json({ success: true });
 });
 
@@ -246,8 +272,15 @@ app.get('/api/settings', auth.optionalStaff, (req, res) => {
   res.json(req.isStaff ? pick(s, EDITABLE_SETTING_KEYS) : pick(s, PUBLIC_SETTING_KEYS));
 });
 
-app.put('/api/settings', auth.requireStaff, (req, res) => {
-  const updated = db.updateSettings(sanitizeSettings(req.body || {}));
+app.put('/api/settings', P('settings.manage'), (req, res) => {
+  const clean = sanitizeSettings(req.body || {});
+  if (clean.allowPinLogin === false && staff.activeAdminCount() === 0) {
+    return res.status(409).json({ error: 'Crea antes un usuario administrador: si no, nadie podría entrar.' });
+  }
+  const before = pick(db.getSettings(), EDITABLE_SETTING_KEYS);
+  const updated = db.updateSettings(clean);
+  const changed = Object.keys(clean).filter(k => JSON.stringify(before[k]) !== JSON.stringify(updated[k]));
+  if (changed.length) audit(req, 'settings.update', { entity: 'settings', before: pick(before, changed), after: pick(updated, changed) });
   io.emit('settings:update', pick(updated, PUBLIC_SETTING_KEYS));
   res.json(pick(updated, EDITABLE_SETTING_KEYS));
 });
@@ -265,8 +298,9 @@ app.get('/api/tables/:id', auth.optionalStaff, (req, res) => {
   res.json(enrichTable(raw, { full: req.isStaff }));
 });
 
-app.put('/api/tables/:id', auth.requireStaff, (req, res) => {
+app.put('/api/tables/:id', P('tables.status'), (req, res) => {
   const updates = {};
+  const prev = db.getTable(req.params.id);
   if (['AVAILABLE', 'OCCUPIED'].includes(req.body?.status)) updates.status = req.body.status;
   if (req.body?.capacity !== undefined) updates.capacity = Math.max(1, Math.min(30, parseInt(req.body.capacity, 10) || 1));
 
@@ -276,6 +310,7 @@ app.put('/api/tables/:id', auth.requireStaff, (req, res) => {
   // Al liberar una mesa, se cierra su cuenta (las comandas servidas dejan de sumar)
   if (updates.status === 'AVAILABLE') db.closeServedOrders(updated);
 
+  audit(req, 'table.update', { entity: 'table', entityId: updated.number, before: prev && { status: prev.status, capacity: prev.capacity }, after: updates });
   broadcastTable(updated);
   res.json(enrichTable(updated, { full: true }));
 });
@@ -318,7 +353,7 @@ function sanitizeFloor(f) {
 }
 
 // Guardar disposición del plano desde el editor del administrador
-app.post('/api/tables/layout', auth.requireStaff, (req, res) => {
+app.post('/api/tables/layout', P('floor.manage'), (req, res) => {
   const { positions, floor } = req.body || {};
   if (!Array.isArray(positions) || positions.length > 200) {
     return res.status(400).json({ error: 'Se esperaba un array de posiciones' });
@@ -350,7 +385,12 @@ app.post('/api/tables/layout', auth.requireStaff, (req, res) => {
     status: (db.getTable(str(p.id, 40)) || {}).status === 'OCCUPIED' ? 'OCCUPIED' : 'AVAILABLE'
   }));
 
+  const beforeNums = db.getTables().map(t => t.number).sort();
   db.updateTablePositions(clean);
+  const afterNums = clean.map(t => t.number).sort();
+  if (JSON.stringify(beforeNums) !== JSON.stringify(afterNums)) {
+    audit(req, 'floor.tables_changed', { entity: 'floor', before: beforeNums, after: afterNums });
+  }
   io.emit('floor:update', savedFloor);
   io.emit('table:layout_update', publicTables());
   res.json({ success: true, floor: savedFloor, tables: db.getTables().map(t => enrichTable(t, { full: true })) });
@@ -359,16 +399,146 @@ app.post('/api/tables/layout', auth.requireStaff, (req, res) => {
 // --------------------------------------------------------------------------
 // CARTA
 // --------------------------------------------------------------------------
-app.get('/api/menu', (req, res) => {
-  res.json({
-    categories: db.getCategories(),
-    products: db.getProducts(),
-    allergens: db.ALLERGENS
-  });
+// Los clientes solo ven lo activo; el personal ve también lo dado de baja (para recuperarlo)
+const visibleMenu = (all) => ({
+  categories: db.getCategories().filter(c => all || c.active !== false),
+  products: db.getProducts().filter(p => all || (p.active !== false && db.getCategories().some(c => c.id === p.categoryId && c.active !== false)))
+});
+const emitMenu = () => io.emit('menu:update', visibleMenu(false));
+
+app.get('/api/menu', auth.optionalStaff, (req, res) => {
+  res.json({ ...visibleMenu(req.isStaff && req.query.all === '1'), allergens: db.ALLERGENS, vatRates: VAT_RATES });
+});
+
+// Tipos de IVA permitidos (el tipo de cada producto lo decide el titular / su asesor)
+const VAT_RATES = [0, 4, 10, 21];
+const AREAS = ['kitchen', 'bar'];
+
+function cleanModifiers(list) {
+  if (!Array.isArray(list)) return undefined;
+  return list.slice(0, 10).map(m => ({
+    id: str(m.id, 40) || `mod-${crypto.randomUUID().slice(0, 6)}`,
+    name: str(m.name, 40),
+    required: !!m.required,
+    options: (Array.isArray(m.options) ? m.options : []).map(o => str(String(o), 40)).filter(Boolean).slice(0, 15)
+  })).filter(m => m.name && m.options.length);
+}
+
+// Campos de la carta ampliada (categoría, IVA, área de preparación, orden, modificadores, alta/baja)
+function productExtras(b) {
+  const u = {};
+  if (b.categoryId !== undefined) u.categoryId = str(b.categoryId, 40);
+  if (b.vatRate !== undefined) {
+    if (!VAT_RATES.includes(Number(b.vatRate))) throw Object.assign(new Error('Tipo de IVA no válido'), { status: 400 });
+    u.vatRate = Number(b.vatRate);
+  }
+  if (b.area !== undefined) u.area = AREAS.includes(b.area) ? b.area : null;
+  if (b.sort !== undefined) u.sort = clampNum(b.sort, 0, 9999, 0);
+  if (b.active !== undefined) u.active = !!b.active;
+  const mods = cleanModifiers(b.modifiers);
+  if (mods) u.modifiers = mods;
+  return u;
+}
+
+app.post('/api/products', P('menu.manage'), (req, res) => {
+  const b = req.body || {};
+  const name = str(b.name, 80);
+  const price = Number(b.price);
+  if (!name) return res.status(400).json({ error: 'Indica el nombre del plato' });
+  if (!Number.isFinite(price) || price < 0 || price > 10000) return res.status(400).json({ error: 'Precio no válido' });
+  const cat = db.getCategories().find(c => c.id === b.categoryId);
+  if (!cat) return res.status(400).json({ error: 'Elige una categoría' });
+  const prod = {
+    id: `prod-${crypto.randomUUID().slice(0, 8)}`,
+    categoryId: cat.id,
+    name,
+    name_en: str(b.name_en, 80),
+    description: str(b.description, 300),
+    description_en: str(b.description_en, 300),
+    price: Math.round(price * 100) / 100,
+    image: '',
+    isAvailable: true,
+    active: true,
+    allergens: Array.isArray(b.allergens) ? b.allergens.filter(a => db.ALLERGENS.includes(a)) : [],
+    modifiers: [],
+    badge: str(b.badge, 30),
+    vatRate: 10,
+    area: null,
+    sort: db.getProducts().filter(p => p.categoryId === cat.id).length,
+    ...productExtras({ ...b, categoryId: undefined })
+  };
+  db.addProduct(prod);
+  audit(req, 'product.create', { entity: 'product', entityId: prod.id, after: prod });
+  emitMenu();
+  res.status(201).json(prod);
+});
+
+// Baja: el plato deja de verse pero se conserva (los pedidos antiguos lo siguen nombrando)
+app.delete('/api/products/:id', P('menu.manage'), (req, res) => {
+  const prod = db.getProducts().find(p => p.id === req.params.id);
+  if (!prod) return res.status(404).json({ error: 'Producto no encontrado' });
+  db.updateProduct(prod.id, { active: false });
+  audit(req, 'product.deactivate', { entity: 'product', entityId: prod.id, before: { active: true }, after: { active: false } });
+  emitMenu();
+  res.json({ success: true });
+});
+
+app.post('/api/categories', P('menu.manage'), (req, res) => {
+  const b = req.body || {};
+  const name = str(b.name, 60);
+  if (!name) return res.status(400).json({ error: 'Indica el nombre de la categoría' });
+  const cat = {
+    id: `cat-${crypto.randomUUID().slice(0, 8)}`,
+    name,
+    name_en: str(b.name_en, 60),
+    description: str(b.description, 160),
+    description_en: str(b.description_en, 160),
+    area: AREAS.includes(b.area) ? b.area : 'kitchen',
+    sort: db.getCategories().length,
+    active: true
+  };
+  db.addCategory(cat);
+  audit(req, 'category.create', { entity: 'category', entityId: cat.id, after: cat });
+  emitMenu();
+  res.status(201).json(cat);
+});
+
+app.put('/api/categories/:id', P('menu.manage'), (req, res) => {
+  const b = req.body || {};
+  const cat = db.getCategories().find(c => c.id === req.params.id);
+  if (!cat) return res.status(404).json({ error: 'Categoría no encontrada' });
+  const u = {};
+  for (const k of ['name', 'name_en']) if (b[k] !== undefined) u[k] = str(b[k], 60);
+  for (const k of ['description', 'description_en']) if (b[k] !== undefined) u[k] = str(b[k], 160);
+  if (b.area !== undefined && AREAS.includes(b.area)) u.area = b.area;
+  if (b.sort !== undefined) u.sort = clampNum(b.sort, 0, 9999, 0);
+  if (b.active !== undefined) u.active = !!b.active;
+  if (u.name === '') return res.status(400).json({ error: 'El nombre no puede quedar vacío' });
+  const before = pick(cat, Object.keys(u));
+  const updated = db.updateCategory(cat.id, u);
+  audit(req, u.active === false ? 'category.deactivate' : 'category.update', { entity: 'category', entityId: cat.id, before, after: u });
+  emitMenu();
+  res.json(updated);
+});
+
+app.delete('/api/categories/:id', P('menu.manage'), (req, res) => {
+  const cat = db.getCategories().find(c => c.id === req.params.id);
+  if (!cat) return res.status(404).json({ error: 'Categoría no encontrada' });
+  db.updateCategory(cat.id, { active: false });
+  audit(req, 'category.deactivate', { entity: 'category', entityId: cat.id, before: { active: true }, after: { active: false } });
+  emitMenu();
+  res.json({ success: true });
 });
 
 app.put('/api/products/:id', auth.requireStaff, (req, res) => {
   const b = req.body || {};
+  // Marcar agotado lo puede hacer cualquiera del equipo; el resto, solo encargado o administrador
+  const onlyAvailability = Object.keys(b).every(k => ['isAvailable', 'id'].includes(k));
+  if (!staffMod.can(req.staff.role, onlyAvailability ? 'menu.availability' : 'menu.manage')) {
+    return res.status(403).json({ error: 'Tu usuario no tiene permiso para esta acción.' });
+  }
+  const prevProd = db.getProducts().find(p => p.id === req.params.id);
+  const before = prevProd ? { ...prevProd } : null;
   const updates = {};
   if (b.price !== undefined) {
     const n = Number(b.price);
@@ -380,11 +550,44 @@ app.put('/api/products/:id', auth.requireStaff, (req, res) => {
   for (const k of ['name', 'name_en']) if (b[k] !== undefined) updates[k] = str(b[k], 80);
   for (const k of ['description', 'description_en']) if (b[k] !== undefined) updates[k] = str(b[k], 300);
   if (b.badge !== undefined) updates.badge = str(b.badge, 30);
+  Object.assign(updates, productExtras(b));
+  if (updates.categoryId && !db.getCategories().some(c => c.id === updates.categoryId)) return res.status(400).json({ error: 'Categoría no válida' });
 
   const updated = db.updateProduct(req.params.id, updates);
   if (!updated) return res.status(404).json({ error: 'Producto no encontrado' });
-  io.emit('menu:update', { categories: db.getCategories(), products: db.getProducts() });
+  const changed = Object.keys(updates).filter(k => JSON.stringify(before?.[k]) !== JSON.stringify(updated[k]));
+  if (changed.length) audit(req, 'product.update', { entity: 'product', entityId: updated.id, before: pick(before || {}, changed), after: pick(updated, changed) });
+  emitMenu();
   res.json(updated);
+});
+
+// --------------------------------------------------------------------------
+// QR DE LAS MESAS
+// --------------------------------------------------------------------------
+// Pedir, ver las comandas o llamar al camarero exige la clave del QR de ESA mesa.
+// Mientras «qrLegacyEnabled» esté activo (hasta reimprimir los QR) se aceptan los QR antiguos.
+const tableKeyFrom = (req) => String(req.get('X-Table-Key') || req.body?.qrKey || req.query.k || '');
+function tableAccess(req, tbl) {
+  if (req.isStaff) return true;
+  const key = tableKeyFrom(req);
+  if (key && db.getTableByQrKey(key)?.id === tbl.id) return true;
+  return db.getSettings().qrLegacyEnabled !== false;
+}
+const denyTable = (res) => res.status(403).json({ error: 'Para pedir desde la mesa, escanea el código QR que hay en ella.', needQr: true });
+
+// Del QR (/q/<clave>) a la mesa
+app.get('/api/qr/:key', (req, res) => {
+  const t = db.getTableByQrKey(String(req.params.key));
+  if (!t) return res.status(404).json({ error: 'Este código QR ya no es válido. Pide ayuda al personal.' });
+  res.json({ tableNumber: t.number });
+});
+
+// Regenerar el QR de una mesa (el anterior deja de funcionar)
+app.post('/api/tables/:id/qr', P('floor.manage'), (req, res) => {
+  const t = db.regenerateQrKey(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Mesa no encontrada' });
+  audit(req, 'table.qr_regenerated', { entity: 'table', entityId: t.number });
+  res.json({ tableNumber: t.number, qrKey: t.qrKey });
 });
 
 // --------------------------------------------------------------------------
@@ -392,14 +595,27 @@ app.put('/api/products/:id', auth.requireStaff, (req, res) => {
 // --------------------------------------------------------------------------
 const ORDER_STATUSES = ['RECEIVED', 'IN_PREP', 'READY', 'SERVED', 'CLOSED'];
 
-app.get('/api/orders', auth.requireStaff, (req, res) => {
-  res.json(db.getOrders().slice(0, 300));
+// Comandas recientes (KDS) o histórico con filtros: ?from=AAAA-MM-DD&to=AAAA-MM-DD&table=01&status=SERVED
+app.get('/api/orders', P('orders.view'), (req, res) => {
+  const { from, to, table, status } = req.query;
+  if (!from && !to && !table && !status) return res.json(db.getOrders().slice(0, 300));
+  const zone = tz();
+  const list = db.getOrders().filter(o => {
+    const day = time.todayStr(zone, new Date(o.createdAt));
+    if (from && day < String(from)) return false;
+    if (to && day > String(to)) return false;
+    if (table && o.tableNumber !== String(table)) return false;
+    if (status && o.status !== String(status)) return false;
+    return true;
+  });
+  res.json(list.slice(0, Math.min(5000, Number(req.query.limit) || 1000)));
 });
 
 // Comandas abiertas de una mesa (lo que ven los comensales en su móvil)
-app.get('/api/tables/:number/orders', (req, res) => {
+app.get('/api/tables/:number/orders', auth.optionalStaff, (req, res) => {
   const tbl = db.getTable(req.params.number);
   if (!tbl) return res.status(404).json({ error: 'Mesa no encontrada' });
+  if (!tableAccess(req, tbl)) return denyTable(res);
   const since = Date.now() - 12 * 60 * 60 * 1000;
   const orders = db.getOrders().filter(o =>
     (o.tableId === tbl.id || o.tableNumber === tbl.number) &&
@@ -409,11 +625,12 @@ app.get('/api/tables/:number/orders', (req, res) => {
   res.json(orders);
 });
 
-app.post('/api/orders', orderLimiter, (req, res) => {
+app.post('/api/orders', orderLimiter, auth.optionalStaff, (req, res) => {
   try {
     const { tableNumber, items, notes } = req.body || {};
     const tbl = db.getTable(str(String(tableNumber ?? ''), 10)) || db.getTable(str(req.body?.tableId, 40));
     if (!tbl) return res.status(400).json({ error: 'Mesa no válida' });
+    if (!tableAccess(req, tbl)) return denyTable(res);
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'El pedido debe incluir al menos un producto' });
     }
@@ -425,6 +642,7 @@ app.post('/api/orders', orderLimiter, (req, res) => {
     for (const it of items) {
       const prod = products.find(p => p.id === it.productId) || products.find(p => p.name === it.name);
       if (!prod) return res.status(400).json({ error: 'Hay un producto que ya no está en la carta' });
+      if (prod.active === false) return res.status(400).json({ error: 'Hay un producto que ya no está en la carta' });
       if (prod.isAvailable === false) return res.status(409).json({ error: `${prod.name} no está disponible ahora mismo` });
 
       const quantity = Math.min(50, Math.max(1, parseInt(it.quantity, 10) || 1));
@@ -451,8 +669,11 @@ app.post('/api/orders', orderLimiter, (req, res) => {
       tableNumber: tbl.number,
       items: cleanItems,
       total,
-      notes: str(notes, 200)
+      notes: str(notes, 200),
+      origin: req.isStaff ? 'pos' : 'qr',
+      ...(req.isStaff ? { createdBy: { id: req.staff.id, name: req.staff.name } } : {})
     });
+    audit(req, 'order.create', { entity: 'order', entityId: newOrder.orderNumber, after: { table: tbl.number, total, items: cleanItems.length, origin: newOrder.origin } });
 
     // Avisar al personal (KDS) y a los comensales de esa mesa
     io.to('staff').to(`table:${tbl.number}`).emit('order:new', newOrder);
@@ -468,11 +689,14 @@ app.post('/api/orders', orderLimiter, (req, res) => {
   }
 });
 
-app.patch('/api/orders/:id/status', auth.requireStaff, (req, res) => {
+app.patch('/api/orders/:id/status', P('orders.status'), (req, res) => {
   const { status } = req.body || {};
   if (!ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
-  const updated = db.updateOrderStatus(req.params.id, status);
+  const prev = db.getOrders().find(o => o.id === req.params.id || o.orderNumber === req.params.id);
+  const from = prev?.status;
+  const updated = db.updateOrderStatus(req.params.id, status, req.staff);
   if (!updated) return res.status(404).json({ error: 'Comanda no encontrada' });
+  audit(req, 'order.status', { entity: 'order', entityId: updated.orderNumber, before: { status: from }, after: { status } });
 
   io.to('staff').to(`table:${updated.tableNumber}`).emit('order:update', updated);
   res.json(updated);
@@ -481,7 +705,7 @@ app.patch('/api/orders/:id/status', auth.requireStaff, (req, res) => {
 // --------------------------------------------------------------------------
 // RESERVAS
 // --------------------------------------------------------------------------
-app.get('/api/reservations', auth.requireStaff, (req, res) => {
+app.get('/api/reservations', P('reservations.manage'), (req, res) => {
   const list = [...db.getReservations()].sort((a, b) =>
     `${b.date || ''} ${b.startTime || ''}`.localeCompare(`${a.date || ''} ${a.startTime || ''}`)
   );
@@ -559,7 +783,12 @@ app.post('/api/reservations', reservationLimiter, auth.optionalStaff, (req, res)
     createdAt: new Date().toISOString()
   };
 
+  if (req.isStaff && !staffMod.can(req.staff.role, 'reservations.manage')) {
+    return res.status(403).json({ error: 'Tu usuario no tiene permiso para esta acción.' });
+  }
+  if (req.isStaff) reservation.createdBy = req.staff.id;
   db.addReservation(reservation);
+  audit(req, 'reservation.create', { entity: 'reservation', entityId: reservation.id, after: { tableNumber: tbl.number, date, startTime, guests, source: reservation.source } });
   broadcastTable(tbl);
   io.to('staff').emit('reservation:new', reservation);
 
@@ -586,12 +815,13 @@ app.post('/api/reservations', reservationLimiter, auth.optionalStaff, (req, res)
 });
 
 // Cancelación: la puede hacer el cliente con su enlace secreto o el personal
-app.delete('/api/reservations/:id', (req, res) => {
+app.delete('/api/reservations/:id', auth.optionalStaff, (req, res) => {
   const existing = db.getReservation(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
   if (existing.status === 'CANCELLED') return res.status(409).json({ error: 'Esta reserva ya estaba cancelada' });
 
-  const cancelled = db.cancelReservation(req.params.id);
+  const cancelled = db.cancelReservation(req.params.id, req.staff?.id || null);
+  audit(req, 'reservation.cancel', { entity: 'reservation', entityId: cancelled.id, before: { status: 'CONFIRMED' }, after: { status: 'CANCELLED', by: req.staff ? 'personal' : 'cliente' } });
   broadcastTable(db.getTable(cancelled.tableId || cancelled.tableNumber));
   io.to('staff').emit('reservation:cancelled', cancelled);
 
@@ -657,9 +887,10 @@ const calls = [];               // avisos pendientes (en memoria)
 const lastCallByTable = new Map();
 const CALL_COOLDOWN_MS = 45 * 1000;
 
-app.post('/api/tables/:number/call', (req, res) => {
+app.post('/api/tables/:number/call', auth.optionalStaff, (req, res) => {
   const tbl = db.getTable(req.params.number);
   if (!tbl) return res.status(404).json({ error: 'Mesa no encontrada' });
+  if (!tableAccess(req, tbl)) return denyTable(res);
   const type = req.body?.type === 'bill' ? 'bill' : 'waiter';
   const key = `${tbl.number}:${type}`;
   const last = lastCallByTable.get(key) || 0;
@@ -675,15 +906,16 @@ app.post('/api/tables/:number/call', (req, res) => {
   res.status(201).json({ success: true, call: { id: call.id, type } });
 });
 
-app.get('/api/calls', auth.requireStaff, (req, res) => {
+app.get('/api/calls', P('calls.manage'), (req, res) => {
   res.json(calls);
 });
 
-app.post('/api/calls/:id/ack', auth.requireStaff, (req, res) => {
+app.post('/api/calls/:id/ack', P('calls.manage'), (req, res) => {
   const idx = calls.findIndex(c => c.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Aviso no encontrado' });
   const [call] = calls.splice(idx, 1);
   lastCallByTable.delete(`${call.tableNumber}:${call.type}`);
+  audit(req, 'call.ack', { entity: 'table', entityId: call.tableNumber, after: { type: call.type } });
   io.to('staff').to(`table:${call.tableNumber}`).emit('call:resolved', call);
   res.json({ success: true });
 });
@@ -693,7 +925,7 @@ app.post('/api/calls/:id/ack', auth.requireStaff, (req, res) => {
 // --------------------------------------------------------------------------
 const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
-app.post('/api/products/:id/image', auth.requireStaff, (req, res) => {
+app.post('/api/products/:id/image', P('menu.manage'), (req, res) => {
   const prod = db.getProducts().find(p => p.id === req.params.id);
   if (!prod) return res.status(404).json({ error: 'Producto no encontrado' });
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.dataUrl || ''));
@@ -709,41 +941,46 @@ app.post('/api/products/:id/image', auth.requireStaff, (req, res) => {
     try { fs.unlinkSync(path.join(db.UPLOAD_DIR, path.basename(prod.image))); } catch (_) { /* ya no existe */ }
   }
   const updated = db.updateProduct(prod.id, { image: `/uploads/${file}` });
-  io.emit('menu:update', { categories: db.getCategories(), products: db.getProducts() });
+  audit(req, 'product.image', { entity: 'product', entityId: prod.id, after: { image: updated.image } });
+  emitMenu();
   res.json(updated);
 });
 
 // --------------------------------------------------------------------------
 // COPIAS DE SEGURIDAD
 // --------------------------------------------------------------------------
-app.get('/api/admin/backups', auth.requireStaff, (req, res) => {
+app.get('/api/admin/backups', P('backups.manage'), (req, res) => {
   res.json(db.listBackups().slice(0, 20));
 });
 
-app.post('/api/admin/backups', auth.requireStaff, (req, res) => {
+app.post('/api/admin/backups', P('backups.manage'), (req, res) => {
   const name = db.backup('manual');
   if (!name) return res.status(500).json({ error: 'No se pudo crear la copia' });
+  audit(req, 'backup.create', { entity: 'backup', entityId: name });
   res.status(201).json({ success: true, name });
 });
 
-app.get('/api/admin/backup/download', auth.requireStaff, (req, res) => {
+app.get('/api/admin/backup/download', P('backups.manage'), (req, res) => {
+  audit(req, 'backup.download', { entity: 'backup' });
   const stamp = time.todayStr(tz());
   res.setHeader('Content-Disposition', `attachment; filename="el-fogon-copia-${stamp}.json"`);
   res.type('application/json').send(JSON.stringify(db.exportData(), null, 2));
 });
 
-app.post('/api/admin/restore', auth.requireStaff, (req, res) => {
+app.post('/api/admin/restore', P('backups.manage'), (req, res) => {
   const { name, data } = req.body || {};
   const source = name ? db.readBackup(name) : data;
   if (!source) return res.status(400).json({ error: 'Copia no encontrada o dañada' });
   try {
     db.restore(source);
   } catch (err) {
+    audit(req, 'backup.restore', { entity: 'backup', entityId: name || 'archivo', result: 'error' });
     return res.status(400).json({ error: err.message });
   }
+  audit(req, 'backup.restore', { entity: 'backup', entityId: name || 'archivo' });
   io.emit('floor:update', db.getFloor());
   io.emit('table:layout_update', publicTables());
-  io.emit('menu:update', { categories: db.getCategories(), products: db.getProducts() });
+  emitMenu();
   io.emit('settings:update', pick(db.getSettings(), PUBLIC_SETTING_KEYS));
   res.json({ success: true });
 });
@@ -751,12 +988,12 @@ app.post('/api/admin/restore', auth.requireStaff, (req, res) => {
 // --------------------------------------------------------------------------
 // IMPRESIÓN
 // --------------------------------------------------------------------------
-app.get('/api/printer/history', auth.requireStaff, (req, res) => {
+app.get('/api/printer/history', P('printer.use'), (req, res) => {
   res.json(printer.getHistory());
 });
 
 // Ticket de prueba para comprobar la impresora desde Admin → Ajustes
-app.post('/api/printer/test', auth.requireStaff, async (req, res) => {
+app.post('/api/printer/test', P('printer.test'), async (req, res) => {
   const settings = db.getSettings();
   const sample = {
     orderNumber: 'PRUEBA',
@@ -770,11 +1007,46 @@ app.post('/api/printer/test', auth.requireStaff, async (req, res) => {
   res.json({ status: job.status, error: job.error, enabled: !!settings.printerEnabled, ip: settings.printerIp, port: settings.printerPort });
 });
 
-app.post('/api/printer/reprint/:orderId', auth.requireStaff, async (req, res) => {
+app.post('/api/printer/reprint/:orderId', P('printer.use'), async (req, res) => {
   const order = db.getOrders().find(o => o.id === req.params.orderId || o.orderNumber === req.params.orderId);
   if (!order) return res.status(404).json({ error: 'Comanda no encontrada' });
   const printJob = await printer.printOrder(order, db.getSettings());
+  audit(req, 'order.reprint', { entity: 'order', entityId: order.orderNumber, after: { status: printJob.status }, result: printJob.status === 'SENT' ? 'ok' : 'error' });
   res.json(printJob);
+});
+
+// --------------------------------------------------------------------------
+// EMPLEADOS Y PERMISOS
+// --------------------------------------------------------------------------
+app.get('/api/staff/roles', auth.requireStaff, (req, res) => {
+  res.json(Object.entries(staffMod.ROLES).map(([id, r]) => ({ id, label: r.label, permissions: staffMod.permissionsOf(id) })));
+});
+
+app.get('/api/staff', P('staff.manage'), (req, res) => {
+  res.json(staff.list());
+});
+
+app.post('/api/staff', P('staff.manage'), (req, res) => {
+  const b = req.body || {};
+  const r = staff.create(req.staff, { name: b.name, username: b.username, password: b.password, role: b.role });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  audit(req, 'staff.create', { entity: 'employee', entityId: r.employee.id, after: { name: r.employee.name, username: r.employee.username, role: r.employee.role } });
+  res.status(201).json(r.employee);
+});
+
+app.put('/api/staff/:id', P('staff.manage'), (req, res) => {
+  const b = req.body || {};
+  const r = staff.update(req.staff, req.params.id, { name: b.name, role: b.role, active: b.active, password: b.password || undefined });
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  if (r.revokeSessions) auth.revokeEmployee(r.employee.id);
+  const keys = ['name', 'role', 'active'];
+  audit(req, b.password ? 'staff.update_password' : 'staff.update', { entity: 'employee', entityId: r.employee.id, before: pick(r.before, keys), after: pick(r.employee, keys) });
+  res.json(r.employee);
+});
+
+// Historial de actividad (solo lectura): ?entity=order&entityId=0142&employeeId=…&action=order.&beforeId=…
+app.get('/api/audit', P('audit.view'), (req, res) => {
+  res.json(staff.auditList(req.query));
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
@@ -784,6 +1056,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Datos no válidos' });
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Datos demasiado grandes' });
+  if (err.status === 400) return res.status(400).json({ error: err.message });
   console.error('Error en', req.method, req.url, err);
   res.status(500).json({ error: 'Error interno del servidor. Inténtalo de nuevo.' });
 });
@@ -792,7 +1065,8 @@ app.use((err, req, res, next) => {
 // WEBSOCKETS
 // --------------------------------------------------------------------------
 io.use((socket, next) => {
-  socket.data.isStaff = auth.verify(socket.handshake.auth?.token);
+  socket.data.staff = auth.verify(socket.handshake.auth?.token);
+  socket.data.isStaff = !!socket.data.staff;
   next();
 });
 
@@ -800,10 +1074,11 @@ io.on('connection', (socket) => {
   if (socket.data.isStaff) socket.join('staff');
 
   // Los comensales se suscriben solo a las comandas de su mesa
-  socket.on('table:join', (number) => {
+  socket.on('table:join', (number, key) => {
     for (const room of socket.rooms) if (room.startsWith('table:')) socket.leave(room);
     const tbl = db.getTable(String(number || ''));
-    if (tbl) socket.join(`table:${tbl.number}`);
+    const keyOk = typeof key === 'string' && db.getTableByQrKey(key)?.id === tbl?.id;
+    if (tbl && (socket.data.isStaff || keyOk || db.getSettings().qrLegacyEnabled !== false)) socket.join(`table:${tbl.number}`);
   });
 });
 

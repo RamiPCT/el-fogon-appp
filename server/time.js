@@ -17,9 +17,9 @@ function parts(tz = DEFAULT_TZ, date = new Date()) {
   return { date: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) };
 }
 
-// 'YYYY-MM-DD' de hoy en la zona del local
-function todayStr(tz) {
-  return parts(tz).date;
+// 'YYYY-MM-DD' de hoy (o de la fecha indicada) en la zona del local
+function todayStr(tz, date = new Date()) {
+  return parts(tz, date).date;
 }
 
 // Minutos transcurridos desde la medianoche, en la zona del local
