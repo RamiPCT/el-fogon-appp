@@ -9,6 +9,9 @@ _backup_*/
 # Datos reales del local (reservas, teléfonos): no se suben al repositorio.
 # Si falta, el servidor crea una base de datos de ejemplo al arrancar.
 server/data/db.json
+server/data/*.sqlite
+server/data/*.sqlite-*
+server/data/*.corrupto-*
 
 *.log
 .DS_Store
