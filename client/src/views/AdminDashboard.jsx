@@ -5,14 +5,13 @@ import { DeleteTableModal } from '../components/DeleteTableModal';
 import { FloorPlan, ELEMENT_TYPES } from '../components/FloorPlan';
 import { api, getStaffToken } from '../utils/api';
 import { todayStr, prettyDate } from '../utils/time';
-import { formatPrice } from '../utils/formatters';
+import { ALLERGEN_LABELS } from '../components/admin/labels';
+import { ReservationsTab } from '../components/admin/ReservationsTab';
+import { MenuTab } from '../components/admin/MenuTab';
+import { SettingsTab } from '../components/admin/SettingsTab';
+import { ReservationAlerts } from '../components/ReservationAlerts';
 import { onImgError } from '../utils/images';
 
-const ALLERGEN_LABELS = {
-  gluten: 'Gluten', crustaceos: 'Crustáceos', huevo: 'Huevo', pescado: 'Pescado', cacahuetes: 'Cacahuetes',
-  soja: 'Soja', lacteos: 'Lácteos', frutos_cascara: 'Frutos de cáscara', apio: 'Apio', mostaza: 'Mostaza',
-  sesamo: 'Sésamo', sulfitos: 'Sulfitos', altramuces: 'Altramuces', moluscos: 'Moluscos'
-};
 
 export const AdminDashboard = () => {
   const { socket } = useSocket();
@@ -48,7 +47,6 @@ export const AdminDashboard = () => {
   const [scheduleTime, setScheduleTime] = useState('21:00');
   const [scheduleName, setScheduleName] = useState('');
   const [scheduleGuests, setScheduleGuests] = useState(4);
-  const [showPastReservations, setShowPastReservations] = useState(false);
 
   const [settings, setSettings] = useState({
     ownerPhone: '',
@@ -59,34 +57,9 @@ export const AdminDashboard = () => {
     printerPort: 9100,
     barPosition: 'top'
   });
-  const [isSaving, setIsSaving] = useState(false);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [allergenKeys, setAllergenKeys] = useState(Object.keys(ALLERGEN_LABELS));
-  const [editingProductId, setEditingProductId] = useState(null);
-  const [savingProductId, setSavingProductId] = useState(null);
-  const [pinForm, setPinForm] = useState({ current: '', next: '', repeat: '' });
-  const [pinMsg, setPinMsg] = useState(null); // { ok, text }
-  const [pinSource, setPinSource] = useState(null);
-
-  useEffect(() => {
-    fetch('/api/auth/info').then(r => r.json()).then(d => setPinSource(d.source)).catch(() => {});
-  }, []);
-
-  const handleChangePin = async (e) => {
-    e.preventDefault();
-    setPinMsg(null);
-    if (pinForm.next !== pinForm.repeat) return setPinMsg({ ok: false, text: 'Los dos PIN nuevos no coinciden' });
-    try {
-      await api('/api/auth/pin', { method: 'PUT', body: { currentPin: pinForm.current, newPin: pinForm.next } });
-      setPinForm({ current: '', next: '', repeat: '' });
-      setPinSource('stored');
-      setPinMsg({ ok: true, text: '✅ PIN cambiado. Las demás sesiones abiertas se han cerrado.' });
-    } catch (err) {
-      setPinMsg({ ok: false, text: err.message });
-    }
-  };
-
   // Plano de respaldo que abarca todas las mesas (por si el servidor no devuelve el plano)
   const fallbackFloor = (tbls) => {
     const maxX = tbls.reduce((m, t) => Math.max(m, (t.x || 0) + (t.width || 60)), 360);
@@ -453,23 +426,6 @@ export const AdminDashboard = () => {
     }
   };
 
-  // Guardar cambios de un producto de la carta
-  const handleSaveProduct = async (productId, updates) => {
-    setSavingProductId(productId);
-    try {
-      const updated = await api(`/api/products/${productId}`, { method: 'PUT', body: updates });
-      setProducts(prev => prev.map(p => p.id === productId ? updated : p));
-    } catch (err) {
-      alert(`No se pudo guardar el producto: ${err.message}`);
-    } finally {
-      setSavingProductId(null);
-    }
-  };
-
-  const updateProductLocal = (productId, field, value) => {
-    setProducts(prev => prev.map(p => p.id === productId ? { ...p, [field]: value } : p));
-  };
-
   const handleAddNewTable = (shape = 'rect') => {
     const isStool = shape === 'bar_stool';
     let num;
@@ -503,20 +459,6 @@ export const AdminDashboard = () => {
   };
 
   const handleSaveLayout = () => saveLayout();
-
-  const handleSaveSettings = async (e) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      const saved = await api('/api/settings', { method: 'PUT', body: settings });
-      setSettings(saved);
-      alert('✅ Ajustes guardados.');
-    } catch (err) {
-      alert(`Error al guardar: ${err.message}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   return (
     <div className="max-w-4xl mx-auto px-3.5 py-3 space-y-3.5 pb-24">
@@ -579,6 +521,8 @@ export const AdminDashboard = () => {
           </button>
         </div>
       </div>
+
+      <ReservationAlerts />
 
       {loadErrors.length > 0 && (
         <div className="bg-red-950/50 border border-red-900 rounded-2xl p-3 text-xs text-red-100 flex flex-wrap items-center justify-between gap-2" role="alert">
@@ -1029,332 +973,19 @@ export const AdminDashboard = () => {
       )}
 
       {/* PESTAÑA 2: RESERVAS */}
-      {activeTab === 'reservations' && (() => {
-        const today = todayStr();
-        const list = reservations
-          .filter(r => showPastReservations || ((r.date || today) >= today && r.status === 'CONFIRMED'))
-          .sort((a, b) => `${a.date || ''} ${a.startTime || ''}`.localeCompare(`${b.date || ''} ${b.startTime || ''}`));
-        return (
-          <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-3.5 space-y-3 shadow-xl">
-            <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-stone-800">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D]">
-                {showPastReservations ? 'Todas las reservas' : 'Próximas reservas'}
-              </h3>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-stone-400">{list.length}</span>
-                <button
-                  onClick={() => setShowPastReservations(v => !v)}
-                  className="px-2.5 py-1 rounded-lg bg-[#121212] border border-stone-700 text-stone-300 hover:text-white"
-                >
-                  {showPastReservations ? 'Ver solo próximas' : 'Ver historial'}
-                </button>
-              </div>
-            </div>
+      {activeTab === 'reservations' && (
+        <ReservationsTab reservations={reservations} onCancel={handleCancelReservation} />
+      )}
 
-            <div className="space-y-2.5">
-              {list.length === 0 ? (
-                <p className="text-xs text-stone-500 py-6 text-center">No hay reservas{showPastReservations ? '' : ' próximas'}.</p>
-              ) : (
-                list.map(res => {
-                  const phoneDigits = String(res.customerPhone || '').replace(/\D/g, '');
-                  const isToday = res.date === today;
-                  return (
-                    <div key={res.id} className={`bg-[#121212] border rounded-xl p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 ${isToday && res.status === 'CONFIRMED' ? 'border-amber-600/60' : 'border-stone-800'}`}>
-                      <div className="space-y-1 text-xs min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-display font-bold text-[#F4EFE6] text-sm">{res.customerName}</span>
-                          <span className="bg-[#14281D] text-[#C8A45D] px-2 py-0.5 rounded text-[10px] font-bold border border-[#C8A45D]/40">
-                            Mesa {res.tableNumber}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            res.status === 'CONFIRMED' ? 'bg-green-950 text-green-300' : 'bg-red-950 text-red-300'
-                          }`}>
-                            {res.status === 'CONFIRMED' ? 'Confirmada' : 'Cancelada'}
-                          </span>
-                          {isToday && res.status === 'CONFIRMED' && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-black">HOY</span>
-                          )}
-                        </div>
-
-                        <div className="text-stone-400 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                          <span>📅 <strong className="text-stone-200">{prettyDate(res.date || today)}</strong></span>
-                          <span>⏰ <strong className="text-stone-200">{res.startTime} h</strong></span>
-                          <span>👥 {res.guests} pers.</span>
-                          {res.customerPhone && <span>📞 {res.customerPhone}</span>}
-                        </div>
-                        {res.notes && <p className="text-[11px] text-stone-400 italic">“{res.notes}”</p>}
-                      </div>
-
-                      {res.status === 'CONFIRMED' && (
-                        <div className="flex gap-2 shrink-0">
-                          {phoneDigits.length >= 8 && (
-                            <a
-                              href={`https://wa.me/${phoneDigits}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2.5 py-1 bg-[#14281D] hover:bg-green-900 border border-green-700 text-green-300 text-xs rounded-lg flex items-center gap-1 transition"
-                            >
-                              <MessageSquare className="w-3 h-3" />
-                              <span>WhatsApp</span>
-                            </a>
-                          )}
-                          <button
-                            onClick={() => handleCancelReservation(res.id)}
-                            className="px-2.5 py-1 bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-300 text-xs rounded-lg flex items-center gap-1 transition"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>Cancelar</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* PESTAÑA 3: CARTA (precio, disponibilidad y alérgenos) */}
+      {/* PESTAÑA 3: CARTA */}
       {activeTab === 'menu' && (
-        <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-3.5 space-y-3 shadow-xl">
-          <div className="pb-2 border-b border-stone-800">
-            <h3 className="font-display text-sm font-bold text-[#C8A45D]">Carta</h3>
-            <p className="text-[10px] text-stone-400">
-              Cambia precios, marca platos como agotados y declara los alérgenos. Los cambios se ven al instante en las mesas.
-            </p>
-          </div>
-
-          <div className="p-2.5 bg-amber-950/30 border border-amber-800/60 rounded-xl text-[11px] text-amber-200">
-            ⚠️ La información de alérgenos es obligatoria y la debe confirmar la cocina. Si un plato no tiene alérgenos marcados, la carta pide al cliente que consulte al personal.
-          </div>
-
-          {categories.map(cat => {
-            const catProducts = products.filter(p => p.categoryId === cat.id);
-            if (catProducts.length === 0) return null;
-            return (
-              <div key={cat.id} className="space-y-2">
-                <h4 className="text-xs font-bold text-stone-300 pt-1">{cat.name}</h4>
-                {catProducts.map(prod => {
-                  const isEditing = editingProductId === prod.id;
-                  const allergens = Array.isArray(prod.allergens) ? prod.allergens : [];
-                  return (
-                    <div key={prod.id} className={`bg-[#121212] border rounded-xl p-3 space-y-2 ${prod.isAvailable === false ? 'border-red-900/60' : 'border-stone-800'}`}>
-                      <div className="flex items-center gap-3">
-                        <img onError={onImgError} src={prod.image} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-[#F4EFE6] truncate">{prod.name}</p>
-                          <p className="text-[10px] text-stone-500">
-                            {allergens.length ? allergens.map(a => ALLERGEN_LABELS[a] || a).join(', ') : 'Sin alérgenos declarados'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={prod.price}
-                            onChange={(e) => updateProductLocal(prod.id, 'price', e.target.value)}
-                            onBlur={(e) => handleSaveProduct(prod.id, { price: Number(e.target.value) })}
-                            className="w-16 bg-[#1A1A1A] border border-stone-700 rounded-lg px-1.5 py-1 text-xs text-right text-[#C8A45D] font-mono outline-none focus:border-[#C8A45D]"
-                            aria-label={`Precio de ${prod.name}`}
-                          />
-                          <span className="text-xs text-stone-500">€</span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <button
-                          onClick={() => handleSaveProduct(prod.id, { isAvailable: prod.isAvailable === false })}
-                          disabled={savingProductId === prod.id}
-                          className={`px-2.5 py-1 rounded-lg font-bold border transition ${
-                            prod.isAvailable === false
-                              ? 'bg-red-950 border-red-800 text-red-300'
-                              : 'bg-[#14281D] border-green-800 text-green-300'
-                          }`}
-                        >
-                          {prod.isAvailable === false ? '⛔ Agotado' : '✅ Disponible'}
-                        </button>
-                        <button
-                          onClick={() => setEditingProductId(isEditing ? null : prod.id)}
-                          className="px-2.5 py-1 rounded-lg border border-stone-700 text-stone-300 hover:text-white"
-                        >
-                          {isEditing ? 'Cerrar alérgenos' : 'Editar alérgenos'}
-                        </button>
-                        <span className="text-stone-500">Precio actual: {formatPrice(prod.price)}</span>
-                      </div>
-
-                      {isEditing && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {allergenKeys.map(key => {
-                            const on = allergens.includes(key);
-                            return (
-                              <button
-                                key={key}
-                                onClick={() => handleSaveProduct(prod.id, { allergens: on ? allergens.filter(a => a !== key) : [...allergens, key] })}
-                                className={`px-2 py-1 rounded-full text-[10px] font-semibold border transition ${
-                                  on ? 'bg-amber-500 border-amber-400 text-black' : 'bg-[#1A1A1A] border-stone-700 text-stone-400 hover:text-white'
-                                }`}
-                              >
-                                {ALLERGEN_LABELS[key] || key}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+        <MenuTab products={products} setProducts={setProducts} categories={categories} allergenKeys={allergenKeys} />
       )}
 
       {/* PESTAÑA 4: AJUSTES */}
-      {activeTab === 'settings' && (() => {
-        const field = (key, label, props = {}) => (
-          <div>
-            <label htmlFor={`set-${key}`} className="block text-stone-300 mb-1 font-semibold">{label}</label>
-            <input
-              id={`set-${key}`}
-              type={props.type || 'text'}
-              value={settings[key] ?? ''}
-              onChange={e => setSettings({ ...settings, [key]: props.type === 'number' ? Number(e.target.value) : e.target.value })}
-              placeholder={props.placeholder || ''}
-              className="w-full bg-[#121212] border border-stone-700 rounded-xl p-2.5 text-stone-200 outline-none focus:border-[#C8A45D]"
-            />
-            {props.help && <p className="text-[10px] text-stone-500 mt-1">{props.help}</p>}
-          </div>
-        );
-        const area = (key, label, placeholder, help) => (
-          <div>
-            <label htmlFor={`set-${key}`} className="block text-stone-300 mb-1 font-semibold">{label}</label>
-            <textarea
-              id={`set-${key}`}
-              rows={4}
-              value={settings[key] ?? ''}
-              onChange={e => setSettings({ ...settings, [key]: e.target.value })}
-              placeholder={placeholder}
-              className="w-full bg-[#121212] border border-stone-700 rounded-xl p-2.5 text-stone-200 outline-none focus:border-[#C8A45D] resize-y"
-            />
-            {help && <p className="text-[10px] text-stone-500 mt-1">{help}</p>}
-          </div>
-        );
-        return (
-          <>
-          <form onSubmit={handleSaveSettings} className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-4 space-y-5 shadow-xl text-xs">
-            <section className="space-y-3">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Reservas y contacto</h3>
-              {field('ownerPhone', '📱 WhatsApp que recibe las reservas', { placeholder: '34600000000', help: 'Con prefijo de país y sin espacios ni «+» (ej.: 34600000000).' })}
-              {field('publicPhone', '☎️ Teléfono para llamar (opcional)', { placeholder: '+34 965 000 000' })}
-              {field('email', '✉️ Email de contacto', { placeholder: 'hola@elfogon.es', type: 'email' })}
-              {field('instagram', '📸 Instagram (usuario, sin @)', { placeholder: 'elfogon.alicante' })}
-              {field('googleReviewUrl', '⭐ Enlace para dejar reseña en Google', { placeholder: 'https://g.page/r/.../review', help: 'Lo encuentras en tu Perfil de Empresa de Google → «Pedir reseñas».' })}
-              <div className="grid grid-cols-2 gap-3">
-                {field('bufferMinutes', '⏳ Minutos de margen antes de una reserva', { type: 'number' })}
-                {field('reservationDurationMinutes', '⌛ Duración estimada de una reserva (min)', { type: 'number', help: 'Evita dos reservas solapadas en la misma mesa.' })}
-              </div>
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Ubicación y horario (se muestran en la portada)</h3>
-              {field('address', '📍 Dirección', { placeholder: 'Calle Ejemplo, 12' })}
-              <div className="grid grid-cols-2 gap-3">
-                {field('postalCode', 'Código postal', { placeholder: '03001' })}
-                {field('city', 'Ciudad', { placeholder: 'Alicante' })}
-              </div>
-              {field('mapsUrl', '🗺️ Enlace de Google Maps (opcional)', { placeholder: 'https://maps.app.goo.gl/...', help: 'Si lo dejas vacío, se genera a partir de la dirección.' })}
-              {area('openingHours', '🕒 Horario (una línea por franja)', 'Martes a jueves: 19:00 – 00:00\nViernes y sábado: 13:00 – 16:30 · 19:00 – 01:30\nDomingo: 13:00 – 17:00\nLunes: cerrado')}
-              {area('openingHours_en', '🕒 Horario en inglés (opcional)', 'Tue–Thu: 7pm – midnight\nFri–Sat: 1pm – 4:30pm · 7pm – 1:30am\nSun: 1pm – 5pm\nMon: closed')}
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Datos legales (Aviso legal y Privacidad)</h3>
-              {field('legalName', 'Razón social o nombre del titular', { placeholder: 'El Fogón Alicante S.L.' })}
-              {field('nif', 'NIF / CIF', { placeholder: 'B00000000' })}
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Horario de reservas online</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {field('bookingStart', 'Primera hora reservable', { type: 'time' })}
-                {field('bookingEnd', 'Última hora reservable', { type: 'time' })}
-              </div>
-              <p className="text-[10px] text-stone-500">Los clientes podrán elegir horas cada 30 minutos dentro de esta franja.</p>
-            </section>
-
-            <section className="space-y-3">
-              <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Impresora de tickets</h3>
-              <label className="flex items-center gap-2 text-stone-300 font-semibold">
-                <input
-                  type="checkbox"
-                  checked={!!settings.printerEnabled}
-                  onChange={e => setSettings({ ...settings, printerEnabled: e.target.checked })}
-                  className="accent-[#C8A45D]"
-                />
-                Imprimir automáticamente cada comanda
-              </label>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">{field('printerIp', 'IP de la impresora', { placeholder: '192.168.1.100' })}</div>
-                {field('printerPort', 'Puerto', { type: 'number' })}
-              </div>
-              <p className="text-[10px] text-stone-500">La impresora debe estar en la misma red que el ordenador o servidor donde corre la app.</p>
-            </section>
-
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="w-full py-3 bg-[#C8A45D] hover:bg-amber-400 text-[#121212] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition shadow-lg disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Guardando…' : 'Guardar ajustes'}</span>
-            </button>
-          </form>
-
-          <form onSubmit={handleChangePin} className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-4 space-y-3 shadow-xl text-xs mt-3.5">
-            <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">🔑 PIN del personal</h3>
-            {pinSource === 'env' ? (
-              <p className="text-stone-400">El PIN está fijado en el servidor con la variable <code className="text-[#E6C687]">STAFF_PIN</code>. Para cambiarlo, edítala allí.</p>
-            ) : (
-              <>
-                {pinSource === 'dev' && (
-                  <p className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/60 text-amber-200">
-                    Estás usando el PIN de desarrollo <strong>1234</strong>. Cámbialo antes de entregar la web al local.
-                  </p>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[['current', 'PIN actual'], ['next', 'PIN nuevo (4-12 números)'], ['repeat', 'Repite el PIN nuevo']].map(([k, label]) => (
-                    <div key={k}>
-                      <label htmlFor={`pin-${k}`} className="block text-stone-300 mb-1 font-semibold">{label}</label>
-                      <input
-                        id={`pin-${k}`}
-                        type="password"
-                        inputMode="numeric"
-                        autoComplete={k === 'current' ? 'current-password' : 'new-password'}
-                        maxLength={12}
-                        value={pinForm[k]}
-                        onChange={e => setPinForm({ ...pinForm, [k]: e.target.value.replace(/\D/g, '') })}
-                        className="w-full bg-[#121212] border border-stone-700 rounded-xl p-2.5 text-stone-200 font-mono tracking-widest outline-none focus:border-[#C8A45D]"
-                      />
-                    </div>
-                  ))}
-                </div>
-                {pinMsg && <p className={pinMsg.ok ? 'text-green-300' : 'text-red-300'} role="status">{pinMsg.text}</p>}
-                <button
-                  type="submit"
-                  disabled={!pinForm.current || !pinForm.next || !pinForm.repeat}
-                  className="w-full py-2.5 bg-[#14281D] border border-[#C8A45D]/60 text-[#E6C687] font-bold rounded-xl disabled:opacity-40"
-                >
-                  Cambiar PIN
-                </button>
-              </>
-            )}
-          </form>
-          </>
-        );
-      })()}
+      {activeTab === 'settings' && (
+        <SettingsTab settings={settings} setSettings={setSettings} />
+      )}
 
       {/* Modal elegante para Confirmación de Eliminación de Mesa */}
       <DeleteTableModal

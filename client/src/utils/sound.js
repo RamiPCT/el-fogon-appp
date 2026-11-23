@@ -58,3 +58,10 @@ export const playCallChime = () => {
   tone(1046, 0.22, 0.18, 0.28, 'triangle');
   tone(1568, 0.44, 0.5, 0.28, 'triangle');
 };
+
+// Reserva nueva desde la web: tres notas ascendentes suaves
+export const playReservationChime = () => {
+  tone(660, 0, 0.35, 0.25);
+  tone(880, 0.18, 0.35, 0.25);
+  tone(1175, 0.36, 0.7, 0.25);
+};

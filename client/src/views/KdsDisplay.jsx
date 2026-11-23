@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 import { playOrderChime, playCallChime, unlockAudio, isAudioLocked } from '../utils/sound';
 import { api } from '../utils/api';
+import { ReservationAlerts } from '../components/ReservationAlerts';
 import { Printer, Clock, CheckCircle, ChefHat, Bell, RotateCcw, BellRing, Receipt, Volume2, Check } from 'lucide-react';
 
 export const KdsDisplay = () => {
@@ -160,6 +161,9 @@ export const KdsDisplay = () => {
           <Volume2 className="w-5 h-5" /> Toca aquí para activar el sonido de las comandas
         </button>
       )}
+
+      {/* Reservas nuevas desde la web */}
+      <ReservationAlerts />
 
       {/* Avisos de las mesas */}
       {calls.length > 0 && (

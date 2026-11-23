@@ -4,6 +4,9 @@ const path = require('path');
 // En producción (Railway/Render) apunta DATA_DIR a un volumen persistente.
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const MAX_BACKUPS = 40; // ~ 2 semanas con copia al arrancar + diaria
 
 // Los 14 alérgenos de declaración obligatoria en la UE (Reglamento 1169/2011)
 const ALLERGENS = [
@@ -184,12 +187,19 @@ class Database {
         this.data = JSON.parse(raw);
         this.migrate();
         this.save();
+        this.backup('arranque');
       } catch (err) {
-        // No sobrescribimos un archivo dañado: lo apartamos para poder recuperarlo
+        // No sobrescribimos un archivo dañado: lo apartamos y recuperamos la última copia buena
         const broken = DB_FILE.replace(/\.json$/, `.corrupto-${Date.now()}.json`);
         try { fs.copyFileSync(DB_FILE, broken); } catch (_) { /* ignorar */ }
-        console.error(`Error al leer la base de datos. Copia guardada en ${broken}. Se reinicia con valores iniciales.`, err);
-        this.data = JSON.parse(JSON.stringify(INITIAL_DATA));
+        const recovered = this.loadLatestValidBackup();
+        if (recovered) {
+          console.error(`⚠️  La base de datos estaba dañada (copia en ${broken}). Recuperada desde la copia de seguridad ${recovered.name}.`);
+          this.data = recovered.data;
+        } else {
+          console.error(`⚠️  La base de datos estaba dañada (copia en ${broken}) y no hay copias de seguridad. Se reinicia con valores iniciales.`, err);
+          this.data = JSON.parse(JSON.stringify(INITIAL_DATA));
+        }
         this.migrate();
         this.save();
       }
@@ -226,6 +236,81 @@ class Database {
     });
     // Los tokens QR antiguos ya no se usan
     d.tables.forEach(t => { delete t.qrToken; });
+  }
+
+  // ---------------- Copias de seguridad ----------------
+  backup(reason = 'manual') {
+    try {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const name = `db-${stamp}-${String(reason).replace(/[^a-z0-9-]/gi, '')}.json`;
+      fs.writeFileSync(path.join(BACKUP_DIR, name), JSON.stringify(this.data), 'utf-8');
+      // Conservar solo las más recientes
+      const files = this.listBackups();
+      files.slice(MAX_BACKUPS).forEach(f => { try { fs.unlinkSync(path.join(BACKUP_DIR, f.name)); } catch (_) { /* ignorar */ } });
+      return name;
+    } catch (err) {
+      console.error('No se pudo crear la copia de seguridad:', err.message);
+      return null;
+    }
+  }
+
+  listBackups() {
+    try {
+      return fs.readdirSync(BACKUP_DIR)
+        .filter(f => /^db-.*\.json$/.test(f))
+        .map(f => {
+          const st = fs.statSync(path.join(BACKUP_DIR, f));
+          return { name: f, size: st.size, createdAt: st.mtime.toISOString() };
+        })
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  readBackup(name) {
+    if (!/^db-[\w-]+\.json$/.test(String(name))) return null;
+    try {
+      return JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, name), 'utf-8'));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  loadLatestValidBackup() {
+    for (const f of this.listBackups()) {
+      const data = this.readBackup(f.name);
+      if (Database.isValidData(data)) return { name: f.name, data };
+    }
+    return null;
+  }
+
+  static isValidData(d) {
+    return !!d && typeof d === 'object' && Array.isArray(d.tables) && Array.isArray(d.products) &&
+      Array.isArray(d.categories) && d.settings && typeof d.settings === 'object';
+  }
+
+  // Restaurar datos (de una copia o de un archivo subido). Se conservan el PIN y las sesiones actuales.
+  restore(data) {
+    if (!Database.isValidData(data)) throw new Error('El archivo no es una copia válida de El Fogón');
+    this.backup('antes-de-restaurar');
+    const keepPin = this.data.settings?.staffPinHash;
+    const keepSessions = this.data.sessions;
+    this.data = JSON.parse(JSON.stringify(data));
+    this.data.sessions = keepSessions || [];
+    this.migrate();
+    if (keepPin) this.data.settings.staffPinHash = keepPin;
+    else delete this.data.settings.staffPinHash;
+    this.save();
+  }
+
+  // Copia para descargar (sin sesiones ni PIN cifrado)
+  exportData() {
+    const copy = JSON.parse(JSON.stringify(this.data));
+    delete copy.sessions;
+    if (copy.settings) delete copy.settings.staffPinHash;
+    return copy;
   }
 
   // Escritura atómica: si el proceso se corta a mitad, el archivo anterior queda intacto
@@ -428,5 +513,7 @@ class Database {
 const instance = new Database();
 instance.ALLERGENS = ALLERGENS;
 instance.FLOOR_CELL = FLOOR_CELL;
+instance.UPLOAD_DIR = UPLOAD_DIR;
+instance.DATA_DIR = DATA_DIR;
 instance.FLOOR_ELEMENT_TYPES = FLOOR_ELEMENT_TYPES;
 module.exports = instance;

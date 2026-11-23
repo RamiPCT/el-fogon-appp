@@ -9,7 +9,8 @@
     "client": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
     "build:deploy": "npm ci --prefix client --include=dev && npm run build --prefix client",
-    "dev": "node -e \"const { spawn } = require('child_process'); spawn('node', ['--env-file-if-exists=.env', 'server/index.js'], { stdio: 'inherit', shell: true }); spawn('npm', ['run', 'dev', '--prefix', 'client'], { stdio: 'inherit', shell: true });\""
+    "dev": "node -e \"const { spawn } = require('child_process'); spawn('node', ['--env-file-if-exists=.env', 'server/index.js'], { stdio: 'inherit', shell: true }); spawn('npm', ['run', 'dev', '--prefix', 'client'], { stdio: 'inherit', shell: true });\"",
+    "test": "node --test tests/api.test.js"
   },
   "keywords": [
     "restaurant",

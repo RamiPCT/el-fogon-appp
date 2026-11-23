@@ -66,6 +66,18 @@ La parte pública está en **español (España) e inglés**; el idioma se detect
 
 ---
 
+## 💾 Copias de seguridad
+- Se crea una copia automática al arrancar el servidor y otra cada día en `server/data/backups/` (se guardan las últimas 40).
+- Si `db.json` se daña, el servidor arranca solo desde la última copia válida.
+- Admin → Ajustes → **Copias de seguridad**: descargar la copia actual, crear una ahora o restaurar (antes de restaurar se guarda otra copia por si acaso).
+- Las fotos subidas de los platos se guardan en `server/data/uploads/`. En Railway/Render, `DATA_DIR` debe apuntar a un volumen para no perderlas.
+
+## 🧪 Pruebas automáticas
+```bash
+npm test
+```
+Arranca el servidor con datos temporales (no toca los reales) y comprueba PIN, pedidos, precios, reservas solapadas, plano, fotos, copias y recuperación.
+
 ## ☁️ Publicar (Railway o Render)
 
 Esta app **no funciona en Vercel/Netlify**: necesita un servidor encendido (WebSockets en tiempo real) y un disco donde guardar `db.json`.

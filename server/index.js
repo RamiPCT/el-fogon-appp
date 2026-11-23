@@ -47,7 +47,13 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json({ limit: '100kb' }));
+// Límite de tamaño: pequeño para todo, más grande solo para subir fotos y restaurar copias
+const jsonSmall = express.json({ limit: '100kb' });
+const jsonLarge = express.json({ limit: '8mb' });
+app.use((req, res, next) => {
+  const large = /^\/api\/products\/[^/]+\/image$/.test(req.path) || req.path === '/api/admin/restore';
+  return (large ? jsonLarge : jsonSmall)(req, res, next);
+});
 
 // --------------------------------------------------------------------------
 // HELPERS
@@ -683,10 +689,85 @@ app.post('/api/calls/:id/ack', auth.requireStaff, (req, res) => {
 });
 
 // --------------------------------------------------------------------------
+// FOTOS DE LOS PLATOS
+// --------------------------------------------------------------------------
+const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+app.post('/api/products/:id/image', auth.requireStaff, (req, res) => {
+  const prod = db.getProducts().find(p => p.id === req.params.id);
+  if (!prod) return res.status(404).json({ error: 'Producto no encontrado' });
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.dataUrl || ''));
+  if (!m) return res.status(400).json({ error: 'Formato de imagen no válido (usa JPG, PNG o WebP)' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'La foto es demasiado grande (máx. 5 MB)' });
+  fs.mkdirSync(db.UPLOAD_DIR, { recursive: true });
+  const safeId = prod.id.replace(/[^a-z0-9-]/gi, '');
+  const file = `${safeId}-${Date.now().toString(36)}.${IMAGE_TYPES[m[1]]}`;
+  fs.writeFileSync(path.join(db.UPLOAD_DIR, file), buf);
+  // Borrar la foto subida anterior de este plato (las de internet no se tocan)
+  if (typeof prod.image === 'string' && prod.image.startsWith('/uploads/')) {
+    try { fs.unlinkSync(path.join(db.UPLOAD_DIR, path.basename(prod.image))); } catch (_) { /* ya no existe */ }
+  }
+  const updated = db.updateProduct(prod.id, { image: `/uploads/${file}` });
+  io.emit('menu:update', { categories: db.getCategories(), products: db.getProducts() });
+  res.json(updated);
+});
+
+// --------------------------------------------------------------------------
+// COPIAS DE SEGURIDAD
+// --------------------------------------------------------------------------
+app.get('/api/admin/backups', auth.requireStaff, (req, res) => {
+  res.json(db.listBackups().slice(0, 20));
+});
+
+app.post('/api/admin/backups', auth.requireStaff, (req, res) => {
+  const name = db.backup('manual');
+  if (!name) return res.status(500).json({ error: 'No se pudo crear la copia' });
+  res.status(201).json({ success: true, name });
+});
+
+app.get('/api/admin/backup/download', auth.requireStaff, (req, res) => {
+  const stamp = time.todayStr(tz());
+  res.setHeader('Content-Disposition', `attachment; filename="el-fogon-copia-${stamp}.json"`);
+  res.type('application/json').send(JSON.stringify(db.exportData(), null, 2));
+});
+
+app.post('/api/admin/restore', auth.requireStaff, (req, res) => {
+  const { name, data } = req.body || {};
+  const source = name ? db.readBackup(name) : data;
+  if (!source) return res.status(400).json({ error: 'Copia no encontrada o dañada' });
+  try {
+    db.restore(source);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  io.emit('floor:update', db.getFloor());
+  io.emit('table:layout_update', publicTables());
+  io.emit('menu:update', { categories: db.getCategories(), products: db.getProducts() });
+  io.emit('settings:update', pick(db.getSettings(), PUBLIC_SETTING_KEYS));
+  res.json({ success: true });
+});
+
+// --------------------------------------------------------------------------
 // IMPRESIÓN
 // --------------------------------------------------------------------------
 app.get('/api/printer/history', auth.requireStaff, (req, res) => {
   res.json(printer.getHistory());
+});
+
+// Ticket de prueba para comprobar la impresora desde Admin → Ajustes
+app.post('/api/printer/test', auth.requireStaff, async (req, res) => {
+  const settings = db.getSettings();
+  const sample = {
+    orderNumber: 'PRUEBA',
+    tableNumber: '00',
+    createdAt: new Date().toISOString(),
+    items: [{ name: 'Ticket de prueba · Ñandú €', price: 0, quantity: 1, modifiers: { Acentos: 'áéíóú ñ €' } }],
+    total: 0,
+    notes: 'Si lees bien los acentos, la ñ y el €, la impresora está lista.'
+  };
+  const job = await printer.printOrder(sample, settings);
+  res.json({ status: job.status, enabled: !!settings.printerEnabled, ip: settings.printerIp, port: settings.printerPort });
 });
 
 app.post('/api/printer/reprint/:orderId', auth.requireStaff, async (req, res) => {
@@ -732,7 +813,8 @@ const runPurge = () => {
   if (n) console.log(`🧹 ${n} reservas antiguas anonimizadas (más de 6 meses).`);
 };
 runPurge();
-setInterval(runPurge, 24 * 60 * 60 * 1000).unref();
+// Copia de seguridad diaria (además de la que se hace al arrancar)
+setInterval(() => { runPurge(); db.backup('diaria'); }, 24 * 60 * 60 * 1000).unref();
 
 // Refrescar estados de "reserva próxima" a medida que pasa el tiempo
 let lastSnapshot = '';
@@ -782,6 +864,9 @@ function renderIndex(req) {
     .replace(/__SITE_URL__/g, escapeHtml(base))
     .replace('<!--SEO_JSONLD-->', `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`);
 }
+
+// Fotos subidas desde Admin → Carta
+app.use('/uploads', express.static(db.UPLOAD_DIR, { maxAge: '30d', fallthrough: false }));
 
 app.use(express.static(distPath, {
   index: false,

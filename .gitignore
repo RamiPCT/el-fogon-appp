@@ -13,3 +13,5 @@ server/data/db.json
 *.log
 .DS_Store
 Thumbs.db
+server/data/backups/
+server/data/uploads/

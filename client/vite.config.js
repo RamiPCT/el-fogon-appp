@@ -12,6 +12,7 @@ export default defineConfig({
     port: 5173,
     host: true, // accesible desde el móvil en la misma Wi-Fi (http://IP-DEL-PC:5173)
     proxy: {
+      '/uploads': 'http://localhost:3001',
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true
