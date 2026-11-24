@@ -58,7 +58,11 @@ class ThermalPrinterService {
 
   // Genera comandos binarios ESC/POS estándar
   generateEscPosBuffer(order, settings) {
-    const text = this.formatTicket(order, settings);
+    return this.textToEscPos(this.formatTicket(order, settings));
+  }
+
+  // Texto plano (48 columnas) → comandos ESC/POS
+  textToEscPos(text) {
     const ESC = '\x1b';
     const GS = '\x1d';
     
@@ -100,7 +104,7 @@ class ThermalPrinterService {
     for (let i = 0; i < delays.length; i++) {
       if (delays[i]) await new Promise(r => setTimeout(r, delays[i]));
       printJob.attempts = i + 1;
-      const r = await this.sendToPrinter(order, settings);
+      const r = await this.sendToPrinter(this.generateEscPosBuffer(order, settings), settings);
       printJob.status = r.status;
       printJob.error = r.error || null;
       if (r.status !== 'FAILED' || r.connected) break;
@@ -116,7 +120,14 @@ class ThermalPrinterService {
   // Envía el ticket por TCP (ESC/POS, puerto 9100).
   // SENT = la impresora aceptó los datos. Por este protocolo la impresora no confirma
   // que el papel haya salido, así que no se puede garantizar más que eso.
-  sendToPrinter(order, settings) {
+  // Imprime un texto (ticket de cuenta, factura, cierre de caja). Sin reintentos.
+  async printText(text, settings, label = 'Ticket') {
+    if (!settings.printerEnabled) return { status: 'DISABLED', label };
+    const r = await this.sendToPrinter(this.textToEscPos(text), settings);
+    return { status: r.status, error: r.error || null, label };
+  }
+
+  sendToPrinter(buffer, settings) {
     return new Promise((resolve) => {
       const socket = new net.Socket();
       let connected = false;
@@ -126,7 +137,7 @@ class ThermalPrinterService {
       socket.connect(settings.printerPort || 9100, settings.printerIp, () => {
         connected = true;
         try {
-          socket.write(this.generateEscPosBuffer(order, settings), (err) => {
+          socket.write(buffer, (err) => {
             finish(err ? { status: 'FAILED', error: `Error al enviar: ${err.message}` } : { status: 'SENT' });
           });
         } catch (err) {

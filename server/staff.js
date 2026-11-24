@@ -21,6 +21,15 @@ const PERMISSIONS = {
   'reservations.manage': ['admin', 'manager', 'waiter'],
   'customers.contact':   ['admin', 'manager'],      // ver teléfonos y escribir por WhatsApp a clientes
   'orders.create':       ['admin', 'manager', 'waiter'], // comandera: tomar pedidos en mesa
+  'checks.view':         ['admin', 'manager', 'waiter'],  // ver la cuenta de una mesa
+  'payments.take':       ['admin', 'manager', 'waiter'],  // cobrar
+  'orders.void':         ['admin', 'manager'],            // anular o invitar platos
+  'discounts.apply':     ['admin', 'manager'],
+  'payments.refund':     ['admin', 'manager'],
+  'cash.manage':         ['admin', 'manager'],            // abrir, movimientos y cerrar caja
+  'invoices.issue':      ['admin', 'manager', 'waiter'],
+  'invoices.view':       ['admin', 'manager'],
+  'invoices.rectify':    ['admin', 'manager'],
   'tables.status':       ['admin', 'manager', 'waiter'],
   'orders.view':         ['admin', 'manager', 'waiter', 'kitchen', 'bar'],
   'orders.status':       ['admin', 'manager', 'waiter', 'kitchen', 'bar'],

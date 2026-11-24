@@ -100,7 +100,8 @@ export const SettingsTab = ({ settings, setSettings }) => {
       </section>
 
       <section className="space-y-3">
-        <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Datos legales (Aviso legal y Privacidad)</h3>
+        <h3 className="font-display text-sm font-bold text-[#C8A45D] pb-2 border-b border-stone-800">Datos fiscales y legales</h3>
+        <p className="text-[11px] text-stone-400">Se usan en el Aviso legal, la Privacidad y en las <strong>facturas</strong> (junto con la dirección de arriba). Hasta que estén completos no se pueden emitir facturas; el ticket de cuenta funciona igual.</p>
         {field('legalName', 'Razón social o nombre del titular', { placeholder: 'El Fogón Alicante S.L.' })}
         {field('nif', 'NIF / CIF', { placeholder: 'B00000000' })}
       </section>

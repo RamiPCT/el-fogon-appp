@@ -9,9 +9,9 @@ Documento vivo: se actualiza al final de cada sesión. Contexto: `ESTADO_Y_AUDIT
 | 1 · Auditoría y diagnóstico | Hecha (23/11/2026) |
 | 2 · Arquitectura y datos | Hecha: SQLite con migración verificada (23/11) |
 | 3 · Usuarios y permisos | Hecha: empleados, roles, permisos en servidor, historial de actividad (23/11) |
-| 4 · TPV y operaciones | Siguiente. Ya hecho de esta fase: carta con altas/bajas, QR seguros, origen y autor de cada pedido |
-| 5 · Pagos y caja | Pendiente (depende de la 4) |
-| 6 · Facturación | Estructura sin datos fiscales reales (decisión D6) |
+| 4 · TPV y operaciones | Hecha: comandera, cuenta por mesa, anular e invitar con motivo, descuentos (24/11) |
+| 5 · Pagos y caja | Hecha: cobros efectivo/tarjeta/otro, parciales, mixtos, dividir, cambio, devoluciones; caja con apertura, movimientos, cierre y arqueo (24/11) |
+| 6 · Facturación | Hecha la estructura: ticket de cuenta, simplificada, completa, rectificativa, encadenadas e inalterables. Falta: datos fiscales reales y verificar requisitos Veri*Factu antes de su fecha |
 | 7 · Integraciones | Google: al publicar. WhatsApp: sin API (D10) |
 | 8 · Estadísticas y experiencia | Pendiente |
 | 9 · Pruebas y despliegue | Continua |
@@ -26,6 +26,14 @@ Documento vivo: se actualiza al final de cada sesión. Contexto: `ESTADO_Y_AUDIT
 6. Google: cuando la web sea pública.
 
 ## Sesiones
+
+### 24/11/2026 · TPV completo: cuentas, cobros, caja y facturas
+
+1. **Completado:** cada pedido (QR o comandera) se suma a la cuenta abierta de su mesa; anular e invitar platos con motivo y autor (encargado/admin); descuento % o € con motivo; cobro en efectivo (con cambio), tarjeta (datáfono, registro manual) u otro; cobros parciales, mixtos y división entre N o por platos; protección contra cobros duplicados (`Idempotency-Key`); al saldar, la mesa se libera y las comandas pasan a CLOSED; no se puede liberar una mesa con cuenta pendiente; devoluciones (reabren la cuenta); caja: apertura con fondo, entradas/salidas con motivo, cierre con efectivo contado y descuadre, resumen imprimible e historial; ticket de cuenta (no fiscal); factura simplificada, completa (sustituye a la simplificada) y rectificativa, numeración por serie y año, IVA desglosado, cadena de huellas SHA-256 y comprobación de integridad; KDS tacha lo anulado; copias de seguridad completas (.sqlite) y recuperación desde ellas.
+2. **Archivos nuevos:** `server/sales.js`, `server/receipts.js`, `client/src/components/admin/{CheckPanel,CajaTab}.jsx`, `client/src/utils/money.js`. **Cambiados:** `server/{store,db,index,staff,printer}.js`, `ComanderaTab.jsx`, `AdminDashboard.jsx`, `SettingsTab.jsx`, `KdsDisplay.jsx`, `tests/api.test.js`.
+3. **Pruebas:** `npm test` 28/28 (nuevas: cuenta y cobro mixto, idempotencia, mesa con cuenta pendiente, facturas y cadena, devolución y arqueo, triggers de inalterabilidad). Navegador: servicio completo con encargada y camarero en móvil 20/20; resto de pruebas sin cambios.
+4. **Pendiente:** cargar los datos fiscales reales (Ajustes → Datos fiscales); revisar con el asesor el IVA de cada producto; antes de la fecha obligatoria de Veri*Factu, verificar el formato de registro, el QR tributario y el envío a la AEAT.
+5. **Siguiente tarea exacta:** estadísticas de ventas (por día/semana/mes, productos, horas, empleados, formas de pago) a partir de `payments`, `checks` y `order_items`.
 
 ### 23/11/2026 (tarde) · Fases 2 y 3, carta y QR seguros · rama `fase-2`
 

@@ -210,7 +210,19 @@ class Database {
         fs.renameSync(SQLITE_FILE, broken);
         for (const ext of ['-wal', '-shm']) { try { fs.renameSync(SQLITE_FILE + ext, broken + ext); } catch (_) { /* puede no existir */ } }
         console.error(`⚠️  La base de datos estaba dañada (apartada en ${broken}). Se recupera desde la última copia de seguridad.`);
-        this.createFrom(this.loadLatestValidBackup()?.data || null, 'recuperación');
+        // Primero, la última copia completa (.sqlite); si no hay, la última copia de datos (.json)
+        const full = this.latestValidSqliteBackup();
+        if (full) {
+          fs.copyFileSync(full, SQLITE_FILE);
+          console.error(`✅ Base de datos recuperada desde la copia completa ${path.basename(full)}.`);
+          this.sql = store.open(SQLITE_FILE);
+          store.migrateSchema(this.sql);
+          this.loadFromSql();
+          this.migrate();
+          this.save();
+        } else {
+          this.createFrom(this.loadLatestValidBackup()?.data || null, 'recuperación');
+        }
       } else {
         store.migrateSchema(this.sql);
         this.loadFromSql();
@@ -355,14 +367,38 @@ class Database {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const name = `db-${stamp}-${String(reason).replace(/[^a-z0-9-]/gi, '')}.json`;
       fs.writeFileSync(path.join(BACKUP_DIR, name), JSON.stringify(this.data), 'utf-8');
+      // Copia COMPLETA de la base (incluye equipo, historial, cobros, caja y facturas)
+      if (this.sql) {
+        const full = path.join(BACKUP_DIR, name.replace(/\.json$/, '.sqlite'));
+        try { this.sql.exec(`VACUUM INTO '${full.replace(/'/g, "''")}'`); } catch (err) { console.error('No se pudo crear la copia completa:', err.message); }
+      }
       // Conservar solo las más recientes
       const files = this.listBackups();
-      files.slice(MAX_BACKUPS).forEach(f => { try { fs.unlinkSync(path.join(BACKUP_DIR, f.name)); } catch (_) { /* ignorar */ } });
+      files.slice(MAX_BACKUPS).forEach(f => {
+        for (const ext of ['.json', '.sqlite']) { try { fs.unlinkSync(path.join(BACKUP_DIR, f.name.replace(/\.json$/, ext))); } catch (_) { /* ignorar */ } }
+      });
       return name;
     } catch (err) {
       console.error('No se pudo crear la copia de seguridad:', err.message);
       return null;
     }
+  }
+
+  latestValidSqliteBackup() {
+    try {
+      const files = fs.readdirSync(BACKUP_DIR).filter(f => /^db-.*\.sqlite$/.test(f))
+        .map(f => path.join(BACKUP_DIR, f))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      for (const f of files) {
+        try {
+          const probe = store.open(f);
+          const ok = store.integrityOk(probe);
+          probe.close();
+          if (ok) return f;
+        } catch (_) { /* probar la siguiente */ }
+      }
+    } catch (_) { /* sin carpeta de copias */ }
+    return null;
   }
 
   listBackups() {

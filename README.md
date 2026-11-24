@@ -33,6 +33,12 @@ npm start
 
 > ⚠️ Después de cambiar código, vuelve a ejecutar `npm run build` antes de `npm start`; si no, verás la versión anterior.
 
+### Cobros y caja
+* **Comandera** (camareros): mesa → platos → enviar. La cuenta de la mesa aparece debajo: 🖨️ Ticket, 💶 Cobrar (efectivo con cambio, tarjeta del datáfono u otro; dividir entre 2-4 o por platos) y 📄 Factura.
+* **💶 Caja** (encargado/admin): abrir con el fondo, entradas y salidas, cuentas abiertas, anular/invitar/descontar, devoluciones, cerrar con el efectivo contado (calcula el descuadre e imprime el resumen) y facturas emitidas.
+* Sin caja abierta no se puede cobrar. Una mesa con cuenta pendiente no se puede liberar.
+* Facturas: completa razón social, NIF y dirección en Ajustes → Datos fiscales.
+
 ### Usuarios del equipo
 * Cada persona entra con **su usuario y contraseña** (Admin → 👥 Equipo). Roles: Administrador, Encargado, Camarero, Cocina y Barra; los permisos los comprueba el servidor.
 * Todo queda en **Admin → 📜 Historial** (quién hizo qué y cuándo). Ese registro no se puede modificar ni borrar.

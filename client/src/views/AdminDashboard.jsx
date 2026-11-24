@@ -14,6 +14,7 @@ import { TeamTab } from '../components/admin/TeamTab';
 import { AuditTab } from '../components/admin/AuditTab';
 import { QrSection } from '../components/admin/QrSection';
 import { ComanderaTab } from '../components/admin/ComanderaTab';
+import { CajaTab } from '../components/admin/CajaTab';
 import { useStaff, ROLE_LABELS } from '../hooks/useStaff';
 import { onImgError } from '../utils/images';
 
@@ -26,6 +27,7 @@ export const AdminDashboard = () => {
     { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && !can('floor.manage') },
     { id: 'visual_map', label: '🗺️ Plano', show: can('floor.manage') },
     { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && can('floor.manage') },
+    { id: 'caja', label: '💶 Caja', show: can('cash.manage') },
     { id: 'reservations', label: '📅 Reservas', show: can('reservations.manage') },
     { id: 'menu', label: '🍽️ Carta', show: can('menu.manage') || can('menu.availability') },
     { id: 'team', label: '👥 Equipo', show: can('staff.manage') },
@@ -503,12 +505,12 @@ export const AdminDashboard = () => {
 
         {/* Pestañas según permisos */}
         {TABS.length > 0 && (
-          <div className="grid grid-cols-3 sm:grid-cols-7 gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
+          <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-xl border border-stone-800 text-[11px] sm:text-xs">
             {TABS.map(tabDef => (
               <button
                 key={tabDef.id}
                 onClick={() => setActiveTab(tabDef.id)}
-                className={`py-2 px-1 text-center font-bold rounded-lg transition whitespace-nowrap ${activeTab === tabDef.id ? 'bg-[#C8A45D] text-[#121212] shadow-md' : 'text-stone-300 hover:text-white'}`}
+                className={`flex-1 min-w-[30%] sm:min-w-0 py-2 px-2 text-center font-bold rounded-lg transition whitespace-nowrap ${activeTab === tabDef.id ? 'bg-[#C8A45D] text-[#121212] shadow-md' : 'text-stone-300 hover:text-white'}`}
               >
                 {tabDef.label}
               </button>
@@ -989,6 +991,9 @@ export const AdminDashboard = () => {
 
       {/* PESTAÑA: COMANDERA (camareros) */}
       {activeTab === 'comandera' && <ComanderaTab tables={tables} products={products} categories={categories} />}
+
+      {/* PESTAÑA: CAJA */}
+      {activeTab === 'caja' && <CajaTab />}
 
       {/* PESTAÑA: EQUIPO */}
       {activeTab === 'team' && <TeamTab me={me} />}

@@ -6,6 +6,9 @@ import { ReservationAlerts } from '../components/ReservationAlerts';
 import { PRINT_STATUS } from '../components/admin/PrinterTest';
 import { Printer, Clock, CheckCircle, ChefHat, Bell, RotateCcw, BellRing, Receipt, Volume2, Check } from 'lucide-react';
 
+// Unidades anuladas de una línea (no hay que prepararlas)
+const voidedQty = (item) => (item.adjustments || []).filter(a => a.type === 'void').reduce((t, a) => t + a.qty, 0);
+
 export const KdsDisplay = () => {
   const { socket } = useSocket();
   const [orders, setOrders] = useState([]);
@@ -220,7 +223,7 @@ export const KdsDisplay = () => {
                     {order.items.map((item, idx) => (
                       <div key={idx} className="py-1.5 space-y-0.5">
                         <div className="flex justify-between font-semibold text-stone-200">
-                          <span>{item.quantity}x {item.name}</span>
+                          <span className={voidedQty(item) >= item.quantity ? 'line-through opacity-50' : ''}>{item.quantity}x {item.name}{voidedQty(item) > 0 && <span className="ml-1 text-red-400 text-xs font-bold">(anulado {voidedQty(item)})</span>}</span>
                         </div>
                         {item.modifiers && Object.entries(item.modifiers).map(([k, v]) => (
                           <p key={k} className="text-[10px] text-amber-300 pl-3">↳ {k}: {v}</p>
@@ -287,7 +290,7 @@ export const KdsDisplay = () => {
                   <div className="divide-y divide-stone-800 text-xs">
                     {order.items.map((item, idx) => (
                       <div key={idx} className="py-1 text-stone-200 space-y-0.5">
-                        <span>{item.quantity}x {item.name}</span>
+                        <span className={voidedQty(item) >= item.quantity ? 'line-through opacity-50' : ''}>{item.quantity}x {item.name}{voidedQty(item) > 0 && <span className="ml-1 text-red-400 text-xs font-bold">(anulado {voidedQty(item)})</span>}</span>
                         {item.modifiers && Object.entries(item.modifiers).map(([k, v]) => (
                           <p key={k} className="text-[10px] text-amber-300 pl-3">↳ {k}: {v}</p>
                         ))}

@@ -8,6 +8,8 @@ const db = require('./db');
 const printer = require('./printer');
 const auth = require('./auth');
 const staffMod = require('./staff');
+const { createSales } = require('./sales');
+const receipts = require('./receipts');
 const time = require('./time');
 
 // --------------------------------------------------------------------------
@@ -24,6 +26,8 @@ auth.setEmployeeProvider({
 });
 const P = auth.requirePermission;
 const audit = staff.audit;
+const sales = createSales(db);
+sales.adoptLegacyOrders();
 
 // Un error inesperado se registra pero no tumba el servidor en pleno servicio
 process.on('unhandledRejection', (err) => console.error('⚠️  Promesa rechazada sin gestionar:', err));
@@ -303,6 +307,15 @@ app.put('/api/tables/:id', P('tables.status'), (req, res) => {
   const prev = db.getTable(req.params.id);
   if (['AVAILABLE', 'OCCUPIED'].includes(req.body?.status)) updates.status = req.body.status;
   if (req.body?.capacity !== undefined) updates.capacity = Math.max(1, Math.min(30, parseInt(req.body.capacity, 10) || 1));
+
+  // No se libera una mesa con una cuenta sin cobrar
+  if (updates.status === 'AVAILABLE' && prev) {
+    const open = sales.checkForTable(prev);
+    if (open && open.pendingCents > 0) {
+      return res.status(409).json({ error: `La mesa ${prev.number} tiene una cuenta sin cobrar (${(open.pendingCents / 100).toFixed(2).replace('.', ',')} €). Cóbrala antes de liberarla.` });
+    }
+    if (open && open.pendingCents === 0) sales.closeZero(open.id, req.staff, null);
+  }
 
   const updated = db.updateTable(req.params.id, updates);
   if (!updated) return res.status(404).json({ error: 'Mesa no encontrada' });
@@ -662,24 +675,29 @@ app.post('/api/orders', orderLimiter, auth.optionalStaff, (req, res) => {
         price: Number(prod.price) || 0,
         quantity,
         modifiers,
-        notes: str(it.notes, 140)
+        notes: str(it.notes, 140),
+        vatRate: prod.vatRate ?? 10,
+        area: prod.area || db.getCategories().find(c => c.id === prod.categoryId)?.area || 'kitchen'
       });
     }
 
     const total = Math.round(cleanItems.reduce((s, i) => s + i.price * i.quantity, 0) * 100) / 100;
-    const newOrder = db.createOrder({
+    // El pedido se suma a la cuenta abierta de la mesa (se crea si no hay)
+    const newOrder = db.transaction(() => db.createOrder({
       tableId: tbl.id,
       tableNumber: tbl.number,
+      checkId: sales.ensureOpenCheck(tbl, req.staff).id,
       items: cleanItems,
       total,
       notes: str(notes, 200),
       origin: req.isStaff ? 'pos' : 'qr',
       ...(req.isStaff ? { createdBy: { id: req.staff.id, name: req.staff.name } } : {})
-    });
+    }));
     audit(req, 'order.create', { entity: 'order', entityId: newOrder.orderNumber, after: { table: tbl.number, total, items: cleanItems.length, origin: newOrder.origin } });
 
     // Avisar al personal (KDS) y a los comensales de esa mesa
     io.to('staff').to(`table:${tbl.number}`).emit('order:new', newOrder);
+    io.to('staff').emit('check:update', { tableNumber: tbl.number });
     broadcastTable(db.getTable(tbl.id));
 
     // Impresión térmica en segundo plano (el cliente no espera a la impresora)
@@ -1020,6 +1038,211 @@ app.post('/api/printer/reprint/:orderId', P('printer.use'), async (req, res) => 
   const printJob = await printer.printOrder(order, db.getSettings());
   audit(req, 'order.reprint', { entity: 'order', entityId: order.orderNumber, after: { status: printJob.status }, result: printJob.status === 'SENT' ? 'ok' : 'error' });
   res.json(printJob);
+});
+
+// --------------------------------------------------------------------------
+// CUENTAS, COBROS, CAJA Y FACTURAS
+// --------------------------------------------------------------------------
+const salesError = (res, err) => {
+  if (err.status) return res.status(err.status).json({ error: err.message });
+  console.error('Error en cobros/caja:', err);
+  return res.status(500).json({ error: 'Error interno. No se ha guardado nada.' });
+};
+
+// Al cobrar la cuenta completa: liberar la mesa y avisar a todos
+function onCheckPaid(check, freeTable) {
+  if (freeTable) {
+    const t = db.updateTable(check.table_id, { status: 'AVAILABLE' });
+    if (t) broadcastTable(t);
+  }
+  io.to('staff').emit('check:update', { tableNumber: check.table_number, status: 'paid' });
+}
+
+app.get('/api/tables/:number/check', P('checks.view'), (req, res) => {
+  const tbl = db.getTable(req.params.number);
+  if (!tbl) return res.status(404).json({ error: 'Mesa no encontrada' });
+  res.json(sales.checkForTable(tbl));
+});
+
+app.get('/api/checks', P('checks.view'), (req, res) => {
+  res.json(sales.listChecks({ status: req.query.status, from: req.query.from, to: req.query.to, limit: req.query.limit }));
+});
+
+app.get('/api/checks/:id', P('checks.view'), (req, res) => {
+  const s = sales.summary(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  res.json(s);
+});
+
+// Anular o invitar unidades de un plato
+app.post('/api/orders/:id/items/:idx/adjust', P('orders.void'), (req, res) => {
+  try {
+    const b = req.body || {};
+    const r = sales.adjustLine(req.params.id, req.params.idx, { type: b.type, qty: b.qty, reason: b.reason }, req.staff);
+    const it = r.order.items[Number(req.params.idx)];
+    audit(req, b.type === 'comp' ? 'order.comp' : 'order.void', { entity: 'order', entityId: r.order.orderNumber, after: { plato: it.name, unidades: Number(b.qty) || 1, motivo: b.reason } });
+    io.to('staff').to(`table:${r.order.tableNumber}`).emit('order:update', r.order);
+    io.to('staff').emit('check:update', { tableNumber: r.order.tableNumber });
+    res.json(r.check);
+  } catch (err) { salesError(res, err); }
+});
+
+app.put('/api/checks/:id/discount', P('discounts.apply'), (req, res) => {
+  try {
+    const b = req.body || {};
+    const before = sales.summary(req.params.id);
+    const s = sales.setDiscount(req.params.id, { type: b.type, value: b.value, reason: b.reason }, req.staff);
+    audit(req, 'check.discount', { entity: 'check', entityId: `Mesa ${s.tableNumber}`, before: { descuento: before?.discountCents / 100 }, after: { descuento: s.discountCents / 100, motivo: b.reason || null } });
+    io.to('staff').emit('check:update', { tableNumber: s.tableNumber });
+    res.json(s);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/checks/:id/payments', P('payments.take'), (req, res) => {
+  try {
+    const b = req.body || {};
+    const r = sales.pay(req.params.id, {
+      method: b.method, amount: b.amount, tendered: b.tendered, items: b.items,
+      idempotencyKey: req.get('Idempotency-Key') || b.idempotencyKey, freeTable: b.freeTable !== false
+    }, req.staff, onCheckPaid);
+    if (!r.duplicate) {
+      audit(req, 'payment.create', { entity: 'check', entityId: `Mesa ${r.check.tableNumber}`, after: { importe: r.payment.amountCents / 100, forma: r.payment.method, pendiente: r.check.pendingCents / 100 } });
+      io.to('staff').emit('check:update', { tableNumber: r.check.tableNumber });
+    }
+    res.status(r.duplicate ? 200 : 201).json(r);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/checks/:id/close', P('payments.take'), (req, res) => {
+  try {
+    const s = sales.closeZero(req.params.id, req.staff, onCheckPaid);
+    audit(req, 'check.close_zero', { entity: 'check', entityId: `Mesa ${s.tableNumber}` });
+    res.json(s);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/payments/:id/refund', P('payments.refund'), (req, res) => {
+  try {
+    const r = sales.refund(req.params.id, req.body?.reason, req.staff);
+    audit(req, 'payment.refund', { entity: 'check', entityId: `Mesa ${r.check.tableNumber}`, after: { importe: r.refund.amountCents / 100, forma: r.refund.method, motivo: req.body?.reason } });
+    io.to('staff').emit('check:update', { tableNumber: r.check.tableNumber });
+    res.status(201).json(r);
+  } catch (err) { salesError(res, err); }
+});
+
+app.get('/api/payments', P('cash.manage'), (req, res) => {
+  res.json(sales.paymentsList({ sessionId: req.query.session, limit: req.query.limit }));
+});
+
+// Ticket de cuenta (no es factura): impresora térmica
+app.post('/api/checks/:id/print', P('checks.view'), async (req, res) => {
+  const s = sales.summary(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const r = await printer.printText(receipts.checkTicket(s, db.getSettings()), db.getSettings(), 'Ticket de cuenta');
+  res.json(r);
+});
+
+// Texto de tickets para imprimir desde el navegador (cuando no hay impresora térmica)
+app.get('/api/checks/:id/text', P('checks.view'), (req, res) => {
+  const s = sales.summary(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  res.json({ text: receipts.checkTicket(s, db.getSettings()) });
+});
+app.get('/api/invoices/:id/text', P('invoices.issue'), (req, res) => {
+  const inv = sales.getInvoice(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
+  res.json({ text: receipts.invoiceTicket(inv, db.getSettings()) });
+});
+app.get('/api/cash/sessions/:id/text', P('cash.manage'), (req, res) => {
+  const c = sales.sessionSummary(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Caja no encontrada' });
+  res.json({ text: receipts.cashTicket(c, db.getSettings()) });
+});
+
+// Caja
+app.get('/api/cash/current', P('payments.take'), (req, res) => {
+  const c = sales.currentCash();
+  if (!staffMod.can(req.staff.role, 'cash.manage')) return res.json(c ? { id: c.id, status: 'open', openedAt: c.openedAt } : null);
+  res.json(c);
+});
+
+app.post('/api/cash/open', P('cash.manage'), (req, res) => {
+  try {
+    const c = sales.openCash(req.body?.opening ?? 0, req.staff);
+    audit(req, 'cash.open', { entity: 'cash', entityId: c.id, after: { fondo: c.openingCents / 100 } });
+    io.to('staff').emit('cash:update', { status: 'open' });
+    res.status(201).json(c);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/cash/movements', P('cash.manage'), (req, res) => {
+  try {
+    const b = req.body || {};
+    const c = sales.cashMovement({ type: b.type, amount: b.amount, reason: b.reason }, req.staff);
+    audit(req, b.type === 'in' ? 'cash.in' : 'cash.out', { entity: 'cash', entityId: c.id, after: { importe: Number(b.amount), motivo: b.reason } });
+    res.status(201).json(c);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/cash/close', P('cash.manage'), (req, res) => {
+  try {
+    const c = sales.closeCash({ counted: req.body?.counted, notes: req.body?.notes }, req.staff);
+    audit(req, 'cash.close', { entity: 'cash', entityId: c.id, after: { esperado: c.expectedCashCents / 100, contado: c.countedCents / 100, descuadre: c.differenceCents / 100 } });
+    io.to('staff').emit('cash:update', { status: 'closed' });
+    res.json(c);
+  } catch (err) { salesError(res, err); }
+});
+
+app.get('/api/cash/sessions', P('cash.manage'), (req, res) => {
+  res.json(sales.cashHistory(req.query.limit));
+});
+
+app.post('/api/cash/sessions/:id/print', P('cash.manage'), async (req, res) => {
+  const c = sales.sessionSummary(req.params.id);
+  if (!c) return res.status(404).json({ error: 'Caja no encontrada' });
+  res.json(await printer.printText(receipts.cashTicket(c, db.getSettings()), db.getSettings(), 'Cierre de caja'));
+});
+
+// Facturas
+app.get('/api/invoices/status', P('invoices.issue'), (req, res) => {
+  const { missing } = sales.issuerData();
+  res.json({ ready: missing.length === 0, missing });
+});
+
+app.post('/api/checks/:id/invoice', P('invoices.issue'), (req, res) => {
+  try {
+    const inv = sales.issueInvoice(req.params.id, { type: req.body?.type, customer: req.body?.customer }, req.staff);
+    audit(req, 'invoice.issue', { entity: 'invoice', entityId: inv.number, after: { tipo: inv.type, total: inv.totalCents / 100 } });
+    res.status(201).json(inv);
+  } catch (err) { salesError(res, err); }
+});
+
+app.get('/api/invoices', P('invoices.view'), (req, res) => {
+  res.json(sales.listInvoices({ from: req.query.from, to: req.query.to, limit: req.query.limit }));
+});
+
+app.get('/api/invoices/verify', P('invoices.view'), (req, res) => {
+  res.json(sales.verifyChain());
+});
+
+app.get('/api/invoices/:id', P('invoices.issue'), (req, res) => {
+  const inv = sales.getInvoice(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
+  res.json(inv);
+});
+
+app.post('/api/invoices/:id/rectify', P('invoices.rectify'), (req, res) => {
+  try {
+    const inv = sales.rectify(req.params.id, req.body?.reason, req.staff);
+    audit(req, 'invoice.rectify', { entity: 'invoice', entityId: inv.number, after: { rectifica: inv.rectifies, motivo: req.body?.reason } });
+    res.status(201).json(inv);
+  } catch (err) { salesError(res, err); }
+});
+
+app.post('/api/invoices/:id/print', P('invoices.issue'), async (req, res) => {
+  const inv = sales.getInvoice(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Factura no encontrada' });
+  res.json(await printer.printText(receipts.invoiceTicket(inv, db.getSettings()), db.getSettings(), inv.number));
 });
 
 // --------------------------------------------------------------------------

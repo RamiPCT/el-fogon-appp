@@ -9,7 +9,9 @@ Estado verificado el 23/11/2026. Nada de lo que aparece aquí está activado: ca
 - Consecuencia para el diseño: el módulo de facturación se diseña desde el principio con registros encadenados por hash, numeración correlativa por serie y documentos inalterables. **No se afirmará que cumple** el RD 1007/2023 hasta verificar los requisitos completos (formato de registros, QR tributario, envío a la AEAT o modo no-Veri*Factu, declaración responsable del productor del software).
 - Hacer el programa de facturación propio convierte a quien lo desarrolla en «productor» del sistema informático de facturación, con obligaciones propias. Alternativa: mantener el TPV fiscal que tenga el local y usar El Fogón para la operativa (pedidos, cocina, caja interna).
 
-**Necesito del dueño:** ¿el titular es sociedad o autónomo? ¿El local ya tiene un TPV o caja registradora con la que emite tickets? ¿Quiere que El Fogón emita los documentos fiscales?
+**Estado (24/11):** implementado el módulo de facturación sin datos fiscales reales (ver `ARQUITECTURA.md` §7). El dueño cargará razón social, NIF y dirección en Ajustes antes de abrir. Las normas de facturación (RD 1619/2012) se aplican ya; lo aplazado es el sistema Veri*Factu.
+
+**Pendiente del dueño:** ¿el titular es sociedad o autónomo? ¿El local ya tiene un TPV o caja registradora con la que emite tickets? ¿Quiere que El Fogón emita los documentos fiscales?
 
 Fuentes: [RDL 15/2025 (resumen RSM, enlaza al BOE)](https://www.rsm.global/spain/sites/default/files/media/VeriFactu%20aplazado%20hasta%202027.pdf) · [Anuncio de aplazamiento a 2028](https://loentiendo.com/aplazamiento-verifactu-2028/) · [Fechas vigentes mientras no haya BOE](https://getrenn.com/es/blog/verifactu-aplazado)
 

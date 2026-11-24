@@ -139,9 +139,15 @@ El actual `CLOSED` de los pedidos se mantiene como «servido y mesa liberada» p
 | D8 | Impresión: cuando el servidor esté en la nube, un agente local en el ordenador del local reenvía a la impresora | Propuesta (solo si se publica en la nube) |
 | D9 | Acceso: usuarios individuales (scrypt) + PIN del local como «Dueño (PIN)» mientras `allowPinLogin` esté activo | Hecha (23/11) |
 | D10 | WhatsApp sin API: la reserva se guarda sola y el cliente confirma enviando el mensaje ya escrito; el local recibe el aviso en el KDS y el panel sin tener que responder | Aprobada (sin coste) |
+| D12 | Facturación propia: series T (simplificada), F (completa) y R (rectificativa) por año; datos del emisor desde Ajustes; huellas encadenadas; no se declara cumplimiento de Veri*Factu hasta verificarlo | Hecha (24/11) |
+| D13 | Pagos con tarjeta por datáfono externo: el camarero confirma el cobro; sin pasarela integrada | Hecha (24/11) |
 | D11 | Bajas lógicas en carta (`active: false`): nada se borra, los pedidos antiguos conservan nombre y precio | Hecha (23/11) |
 
-## 7. Roles y permisos (implementado)
+## 7. Cuentas, cobros, caja y facturas (implementado 24/11)
+
+`server/sales.js` (lógica) y `server/receipts.js` (tickets). Tablas: `checks` (una abierta por mesa, índice único parcial), `payments`, `cash_sessions` (una abierta), `cash_movements`, `invoices`. Pagos, movimientos y facturas no admiten UPDATE ni DELETE; una caja cerrada no se puede modificar. Los pedidos (`docs`) llevan `checkId`; las anulaciones e invitaciones son `adjustments` en cada línea. Total de la cuenta = Σ(unidades facturables × precio) − descuento. Las copias de seguridad incluyen ahora un `.sqlite` completo además del JSON.
+
+## 8. Roles y permisos (implementado)
 
 | Permiso | Admin | Encargado | Camarero | Cocina | Barra |
 | --- | --- | --- | --- | --- | --- |
@@ -153,5 +159,9 @@ El actual `CLOSED` de los pedidos se mantiene como «servido y mesa liberada» p
 | Carta: marcar agotado | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Reservas y estado de mesas | ✓ | ✓ | ✓ | | |
 | Comandas (ver y cambiar estado), avisos, reimprimir | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Comandera (tomar pedidos), ver cuenta, cobrar, emitir factura | ✓ | ✓ | ✓ | | |
+| Anular / invitar platos, descuentos, devoluciones, rectificar facturas | ✓ | ✓ | | | |
+| Caja (abrir, movimientos, cerrar), ver facturas | ✓ | ✓ | | | |
+| Ver teléfonos y escribir por WhatsApp a clientes | ✓ | ✓ | | | |
 
 Definido en `server/staff.js` (`PERMISSIONS`) y aplicado con `auth.requirePermission()` en cada ruta.

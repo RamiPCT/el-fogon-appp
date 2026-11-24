@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api';
 import { formatPrice } from '../../utils/formatters';
 import { useSocket } from '../../context/SocketContext';
+import { useStaff } from '../../hooks/useStaff';
+import { CheckPanel } from './CheckPanel';
 
 const STATUS = {
   RECEIVED: ['Recibido', 'bg-stone-700 text-stone-100'],
@@ -20,6 +22,8 @@ const TABLE_COLOR = {
 // El pedido queda a nombre del empleado que lo toma (origen «pos»).
 export const ComanderaTab = ({ tables, products, categories }) => {
   const { socket } = useSocket();
+  const { can } = useStaff();
+  const [checkVersion, setCheckVersion] = useState(0);
   const [table, setTable] = useState(null);
   const [cat, setCat] = useState(null);
   const [cart, setCart] = useState([]);       // { key, product, quantity, modifiers }
@@ -87,6 +91,7 @@ export const ComanderaTab = ({ tables, products, categories }) => {
       setCart([]);
       setNotes('');
       loadOrders(table.number);
+      setCheckVersion(v => v + 1);
     } catch (err) {
       setMsg({ ok: false, text: err.message });
     } finally {
@@ -185,6 +190,8 @@ export const ComanderaTab = ({ tables, products, categories }) => {
           ))}
         </div>
       )}
+
+      {can('checks.view') && <CheckPanel key={`${table.number}-${checkVersion}`} tableNumber={table.number} />}
 
       {cart.length > 0 && (
         <div className="fixed bottom-0 inset-x-0 z-40 p-3 bg-[#121212]/95 backdrop-blur border-t border-[#C8A45D]/40">

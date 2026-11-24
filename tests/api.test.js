@@ -342,6 +342,161 @@ test('QR seguros: sin la clave de la mesa no se puede pedir (cuando se desactiva
   assert.equal((await order(null)).status, 201, 'modo compatibilidad: los QR antiguos vuelven a funcionar');
 });
 
+// ---------------------------------------------------------------- Cobros, caja y facturas
+test('cuenta por mesa, anulación, invitación, descuento, cobro mixto y cierre de mesa', async () => {
+  const tables = (await call('GET', '/api/tables', undefined, false)).data.filter(t => t.shape !== 'bar_stool');
+  const t = tables[tables.length - 1];
+  const menu = (await call('GET', '/api/menu', undefined, false)).data;
+  const p1 = menu.products.find(p => p.price >= 5);
+  const w = as((await loginAs('leo2', 'secreta1')).token || (await (async () => {
+    await call('POST', '/api/staff', { name: 'Leo Dos', username: 'leo2', password: 'secreta1', role: 'waiter' });
+    return (await loginAs('leo2', 'secreta1')).token;
+  })()));
+  const m = as((await loginAs('marta', 'secreta1')).token);
+  const k = as((await loginAs('cocina', 'secreta1')).token);
+
+  // Dos pedidos (camarero + QR) van a la misma cuenta
+  const o1 = (await w('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: p1.id, quantity: 3 }] })).data.order;
+  await call('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: p1.id, quantity: 1 }] }, false);
+  let chk = (await w('GET', `/api/tables/${t.number}/check`)).data;
+  assert.equal(chk.status, 'open');
+  assert.equal(chk.lines.length, 2);
+  const unit = Math.round(p1.price * 100);
+  assert.equal(chk.totalCents, unit * 4);
+  assert.equal((await k('GET', `/api/tables/${t.number}/check`)).status, 403, 'cocina no ve cuentas');
+
+  // Anular e invitar: solo encargado, con motivo
+  assert.equal((await w('POST', `/api/orders/${o1.id}/items/0/adjust`, { type: 'void', qty: 1, reason: 'error al pedir' })).status, 403);
+  assert.equal((await m('POST', `/api/orders/${o1.id}/items/0/adjust`, { type: 'void', qty: 1, reason: '' })).status, 400);
+  chk = (await m('POST', `/api/orders/${o1.id}/items/0/adjust`, { type: 'void', qty: 1, reason: 'error al pedir' })).data;
+  chk = (await m('POST', `/api/orders/${o1.id}/items/0/adjust`, { type: 'comp', qty: 1, reason: 'cliente habitual' })).data;
+  assert.equal(chk.totalCents, unit * 2);
+  assert.equal((await m('POST', `/api/orders/${o1.id}/items/0/adjust`, { type: 'void', qty: 5, reason: 'demasiado' })).status, 409);
+  const log = (await call('GET', `/api/audit?entity=order&entityId=${o1.orderNumber}`)).data;
+  assert.ok(log.some(e => e.action === 'order.void' && e.employeeName === 'Marta'));
+
+  // Descuento 10 %
+  assert.equal((await w('PUT', `/api/checks/${chk.id}/discount`, { type: 'percent', value: 10, reason: 'promo' })).status, 403);
+  chk = (await m('PUT', `/api/checks/${chk.id}/discount`, { type: 'percent', value: 10, reason: 'promo' })).data;
+  assert.equal(chk.discountCents, Math.round(unit * 2 * 0.10));
+  const total = chk.totalCents;
+
+  // Sin caja abierta no se cobra
+  assert.equal((await w('POST', `/api/checks/${chk.id}/payments`, { method: 'cash', amount: 1 })).status, 409);
+  assert.equal((await w('POST', '/api/cash/open', { opening: 100 })).status, 403, 'el camarero no abre caja');
+  assert.equal((await m('POST', '/api/cash/open', { opening: 100 })).status, 201);
+  assert.equal((await m('POST', '/api/cash/open', { opening: 50 })).status, 409, 'solo una caja abierta');
+
+  // Cobro parcial en efectivo con cambio + resto con tarjeta (pago mixto)
+  const half = Math.floor(total / 2);
+  const r1 = await w('POST', `/api/checks/${chk.id}/payments`, { method: 'cash', amount: half / 100, tendered: 50 });
+  assert.equal(r1.status, 201);
+  assert.equal(r1.data.payment.changeCents, 5000 - half);
+  assert.equal(r1.data.check.pendingCents, total - half);
+  assert.equal((await w('POST', `/api/checks/${chk.id}/payments`, { method: 'card', amount: 9999 })).status, 409, 'no se cobra más de lo pendiente');
+  // Pago repetido (doble toque): la misma clave no duplica
+  const key = 'pago-test-1';
+  const r2 = await fetch(`${BASE}/api/checks/${chk.id}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await loginAs('leo2', 'secreta1')).token}`, 'Idempotency-Key': key }, body: JSON.stringify({ method: 'card' }) });
+  assert.equal(r2.status, 201);
+  const r2b = await fetch(`${BASE}/api/checks/${chk.id}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await loginAs('leo2', 'secreta1')).token}`, 'Idempotency-Key': key }, body: JSON.stringify({ method: 'card' }) });
+  assert.equal(r2b.status, 200);
+  const done = (await r2b.json()).check;
+  assert.equal(done.status, 'paid');
+  assert.equal(done.payments.length, 2, 'sin pagos duplicados');
+  assert.equal(done.pendingCents, 0);
+  const tAfter = (await call('GET', '/api/tables')).data.find(x => x.id === t.id);
+  assert.equal(tAfter.status, 'AVAILABLE', 'la mesa se libera al cobrar');
+  assert.equal((await call('GET', `/api/tables/${t.number}/check`)).data, null, 'ya no hay cuenta abierta');
+});
+
+test('no se libera una mesa con la cuenta sin cobrar', async () => {
+  const tables = (await call('GET', '/api/tables', undefined, false)).data.filter(t => t.shape !== 'bar_stool');
+  const t = tables[tables.length - 2];
+  const menu = (await call('GET', '/api/menu', undefined, false)).data;
+  await call('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: menu.products[0].id, quantity: 1 }] });
+  const r = await call('PUT', `/api/tables/${t.id}`, { status: 'AVAILABLE' });
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /sin cobrar/);
+});
+
+test('facturas: datos fiscales, simplificada, completa, rectificativa y cadena inalterable', async () => {
+  const paid = (await call('GET', '/api/checks?status=paid')).data[0];
+  assert.ok(paid, 'hay una cuenta cobrada');
+  const noData = await call('POST', `/api/checks/${paid.id}/invoice`, { type: 'simplified' });
+  assert.equal(noData.status, 409);
+  assert.match(noData.data.error, /datos fiscales/);
+  const settings = (await call('GET', '/api/settings')).data;
+  await call('PUT', '/api/settings', { ...settings, legalName: 'Fogón Alicante S.L.', nif: 'B00000000', address: 'Calle Mayor 1', postalCode: '03001', city: 'Alicante' });
+
+  const inv = await call('POST', `/api/checks/${paid.id}/invoice`, { type: 'simplified' });
+  assert.equal(inv.status, 201, JSON.stringify(inv.data));
+  assert.match(inv.data.number, /^T\d{4}-000001$/);
+  const sumTaxes = inv.data.taxes.reduce((s, t) => s + t.baseCents + t.taxCents, 0);
+  assert.equal(sumTaxes, inv.data.totalCents, 'base + IVA = total');
+  assert.equal(inv.data.totalCents, paid.totalCents);
+  assert.equal(inv.data.issuer.nif, 'B00000000');
+  assert.equal((await call('POST', `/api/checks/${paid.id}/invoice`, { type: 'simplified' })).status, 409, 'una sola simplificada por cuenta');
+
+  assert.equal((await call('POST', `/api/checks/${paid.id}/invoice`, { type: 'full', customer: { name: 'Empresa' } })).status, 400, 'faltan datos del cliente');
+  const full = await call('POST', `/api/checks/${paid.id}/invoice`, { type: 'full', customer: { name: 'Empresa Cliente S.L.', nif: 'b11111111', address: 'Av. Sol 2, Alicante' } });
+  assert.equal(full.status, 201);
+  assert.match(full.data.number, /^F\d{4}-000001$/);
+  assert.equal(full.data.replaces, inv.data.number, 'sustituye a la simplificada');
+  assert.equal(full.data.customer.nif, 'B11111111');
+
+  const w = as((await loginAs('leo2', 'secreta1')).token);
+  assert.equal((await w('POST', `/api/invoices/${full.data.id}/rectify`, { reason: 'error' })).status, 403);
+  const rect = await call('POST', `/api/invoices/${full.data.id}/rectify`, { reason: 'Datos del cliente erróneos' });
+  assert.equal(rect.status, 201);
+  assert.match(rect.data.number, /^R\d{4}-000001$/);
+  assert.equal(rect.data.totalCents, -full.data.totalCents);
+  assert.equal((await call('POST', `/api/invoices/${full.data.id}/rectify`, { reason: 'otra vez' })).status, 409);
+
+  assert.deepEqual((await call('GET', '/api/invoices/verify')).data, { ok: true, count: 3 });
+  const { DatabaseSync } = require('node:sqlite');
+  const sql = new DatabaseSync(path.join(DATA_DIR, 'fogon.sqlite'));
+  assert.throws(() => sql.prepare('UPDATE invoices SET total_cents = 1').run(), /no se pueden modificar/);
+  assert.throws(() => sql.prepare('DELETE FROM payments').run(), /no se pueden borrar/);
+  sql.close();
+});
+
+test('devolución, movimientos y cierre de caja con arqueo', async () => {
+  const tables = (await call('GET', '/api/tables', undefined, false)).data.filter(t => t.shape !== 'bar_stool');
+  const t = tables[tables.length - 3];
+  const menu = (await call('GET', '/api/menu', undefined, false)).data;
+  await call('POST', '/api/orders', { tableNumber: t.number, items: [{ productId: menu.products[0].id, quantity: 2 }] });
+  const chk = (await call('GET', `/api/tables/${t.number}/check`)).data;
+  const pay = (await call('POST', `/api/checks/${chk.id}/payments`, { method: 'cash', freeTable: false })).data;
+  assert.equal(pay.check.status, 'paid');
+  const w = as((await loginAs('leo2', 'secreta1')).token);
+  assert.equal((await w('POST', `/api/payments/${pay.payment.id}/refund`, { reason: 'cliente se quejó' })).status, 403);
+  const ref = await call('POST', `/api/payments/${pay.payment.id}/refund`, { reason: 'cliente se quejó' });
+  assert.equal(ref.status, 201);
+  assert.equal(ref.data.refund.amountCents, -pay.payment.amountCents);
+  assert.equal(ref.data.check.status, 'open', 'la cuenta vuelve a quedar pendiente');
+  assert.equal((await call('POST', `/api/payments/${pay.payment.id}/refund`, { reason: 'otra' })).status, 409);
+  await call('POST', `/api/checks/${chk.id}/payments`, { method: 'card' });
+
+  assert.equal((await call('POST', '/api/cash/movements', { type: 'in', amount: 20, reason: 'cambio del banco' })).status, 201);
+  assert.equal((await call('POST', '/api/cash/movements', { type: 'out', amount: 5, reason: 'compra de hielo' })).status, 201);
+  assert.equal((await call('POST', '/api/cash/movements', { type: 'out', amount: 99999, reason: 'demasiado' })).status, 409);
+  const cur = (await call('GET', '/api/cash/current')).data;
+  assert.equal(cur.expectedCashCents, cur.openingCents + cur.cashCents + 2000 - 500);
+  assert.ok(cur.cardCents > 0);
+  const counted = (cur.expectedCashCents - 150) / 100;
+  const closed = (await call('POST', '/api/cash/close', { counted, notes: 'faltan 1,50' })).data;
+  assert.equal(closed.status, 'closed');
+  assert.equal(closed.differenceCents, -150);
+  assert.equal((await call('GET', '/api/cash/current')).data, null);
+  assert.equal((await call('POST', `/api/checks/${chk.id}/payments`, { method: 'cash', amount: 1 })).status, 409, 'caja cerrada: no se cobra');
+  const hist = (await call('GET', '/api/cash/sessions')).data;
+  assert.equal(hist[0].differenceCents, -150);
+  const { DatabaseSync } = require('node:sqlite');
+  const sql = new DatabaseSync(path.join(DATA_DIR, 'fogon.sqlite'));
+  assert.throws(() => sql.prepare("UPDATE cash_sessions SET counted_cents = 0 WHERE status = 'closed'").run(), /no se puede modificar/);
+  sql.close();
+});
+
 test('la sesión sigue válida después de reiniciar el servidor', async () => {
   await stop();
   await start();
