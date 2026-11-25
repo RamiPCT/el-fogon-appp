@@ -191,6 +191,18 @@ const itemId = (coll, it, i) => String(it.id ?? it.h ?? `${coll}-${i}`);
 class Database {
   constructor() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
+    // Primera puesta en marcha en un servidor nuevo: si todavía no hay base de datos y llega
+    // una inicial (comprimida en INITIAL_DB_GZ_B64), se usa esa. Nunca pisa una base existente.
+    if (!fs.existsSync(SQLITE_FILE) && process.env.INITIAL_DB_GZ_B64) {
+      try {
+        const buf = require('zlib').gunzipSync(Buffer.from(process.env.INITIAL_DB_GZ_B64, 'base64'));
+        if (buf.subarray(0, 15).toString() !== 'SQLite format 3') throw new Error('no es una base SQLite');
+        fs.writeFileSync(SQLITE_FILE, buf);
+        console.log('📦 Base de datos inicial cargada desde INITIAL_DB_GZ_B64');
+      } catch (err) {
+        console.error('⚠️  No se pudo cargar la base inicial:', err.message);
+      }
+    }
     this.cache = {};          // coll -> Map(id -> json) de lo que hay guardado
     this.dirty = {};          // coll -> Set(id) para colecciones grandes
     this.fullSync = false;    // fuerza comparar todas las filas en el próximo guardado

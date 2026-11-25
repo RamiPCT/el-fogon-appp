@@ -63,9 +63,12 @@ export const QrSection = ({ tables, setTables, settings, setSettings }) => {
 </style></head><body>
 <p class="hint">Comprueba un QR con el móvil antes de imprimir. Después, pulsa Ctrl+P (o Compartir → Imprimir en el móvil).</p>
 <div class="grid">${cards.map(c => `<div class="card"><div class="brand">${name.toUpperCase()}</div><div class="title">${esc(c.title)}</div><img src="${c.img}" alt="QR ${esc(c.title)}"><div class="sub">${esc(c.sub)}</div><div class="url">${esc(c.url)}</div></div>`).join('')}</div>
-<script>window.onload = () => setTimeout(() => window.print(), 300);</script>
 </body></html>`);
       win.document.close();
+      // Espera a que se pinten los QR y lanza la impresión desde aquí (sin scripts en la ventana)
+      const imgs = Array.from(win.document.images);
+      await Promise.all(imgs.map(i => (i.complete ? null : new Promise(r => { i.onload = i.onerror = r; }))));
+      setTimeout(() => { try { win.focus(); win.print(); } catch { /* ventana cerrada */ } }, 300);
     } catch (err) {
       win.close();
       setMsg({ ok: false, text: `No se pudieron generar los QR: ${err.message}` });

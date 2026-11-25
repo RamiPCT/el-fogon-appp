@@ -48,10 +48,38 @@ app.disable('x-powered-by');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || null;
 const io = new Server(server, CORS_ORIGIN ? { cors: { origin: CORS_ORIGIN } } : {});
 
+// Qué puede cargar la web: solo sus propios scripts; fotos de cualquier web https; fuentes de Google
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self' ws: wss:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'"
+].join('; ');
+
+// En internet, todo por https
+app.use((req, res, next) => {
+  if (IS_PROD && req.headers['x-forwarded-proto'] === 'http' && req.method === 'GET') {
+    return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Content-Security-Policy', CSP);
+  // En internet (https) el navegador recordará usar siempre https
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   if (CORS_ORIGIN) {
     res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -848,7 +876,7 @@ app.delete('/api/reservations/:id', auth.optionalStaff, (req, res) => {
   const cancelled = db.cancelReservation(req.params.id, req.staff?.id || null);
   audit(req, 'reservation.cancel', { entity: 'reservation', entityId: cancelled.id, before: { status: 'CONFIRMED' }, after: { status: 'CANCELLED', by: req.staff ? 'personal' : 'cliente' } });
   broadcastTable(db.getTable(cancelled.tableId || cancelled.tableNumber));
-  io.to('staff').emit('reservation:cancelled', cancelled);
+  io.to('staff').emit('reservation:cancelled', withoutContact(cancelled));
 
   const settings = db.getSettings();
   const phoneOwner = onlyDigits(settings.ownerPhone);

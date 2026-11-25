@@ -11,6 +11,8 @@ export const printTicketText = (title, text) => {
   const esc = String(text).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title}</title>
 <style>@page{size:80mm auto;margin:3mm}body{margin:0}pre{font:12px/1.35 'Courier New',monospace;white-space:pre-wrap;margin:0}</style>
-</head><body><pre>${esc}</pre><script>window.onload=()=>setTimeout(()=>window.print(),200)</script></body></html>`);
+</head><body><pre>${esc}</pre></body></html>`);
   win.document.close();
+  // Se imprime desde aquí (sin scripts dentro de la ventana, por la política de seguridad)
+  setTimeout(() => { try { win.focus(); win.print(); } catch { /* ventana cerrada */ } }, 300);
 };
