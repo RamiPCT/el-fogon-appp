@@ -182,7 +182,7 @@ function AppShell() {
 
       {/* Pie de página con enlaces legales y acceso de personal */}
       {!isKds && (
-        <footer className="py-6 px-4 text-center text-[11px] text-stone-500 border-t border-stone-900 mt-auto flex flex-col items-center gap-2">
+        <footer className="py-6 px-4 text-center text-[11px] text-stone-400 border-t border-stone-900 mt-auto flex flex-col items-center gap-2">
           <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1">
             <a href="/aviso-legal" onClick={(e) => { e.preventDefault(); navigate('/aviso-legal'); }} className="hover:text-[#C8A45D] transition">{t('footer.legal')}</a>
             <a href="/privacidad" onClick={(e) => { e.preventDefault(); navigate('/privacidad'); }} className="hover:text-[#C8A45D] transition">{t('footer.privacy')}</a>
@@ -193,7 +193,7 @@ function AppShell() {
           {!isStaff ? (
             <button
               onClick={() => setShowPinModal(true)}
-              className="text-[10px] text-stone-600 hover:text-[#C8A45D] transition flex items-center gap-1 py-1 px-2.5 rounded-lg border border-transparent hover:border-stone-800"
+              className="text-[11px] text-stone-400 hover:text-[#C8A45D] transition flex items-center gap-1 py-1 px-2.5 rounded-lg border border-transparent hover:border-stone-800"
             >
               <Lock className="w-3 h-3" />
               <span>{t('footer.staff')}</span>
@@ -212,7 +212,7 @@ function AppShell() {
 
       {isKds && (
         <div className="text-center pb-4">
-          <button onClick={handleLogout} className="text-[10px] text-stone-600 hover:text-amber-400 transition inline-flex items-center gap-1">
+          <button onClick={handleLogout} className="text-[11px] text-stone-400 hover:text-amber-400 transition inline-flex items-center gap-1">
             <Unlock className="w-3 h-3" /> Cerrar sesión de personal
           </button>
         </div>

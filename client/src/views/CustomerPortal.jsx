@@ -8,7 +8,7 @@ import { useSocket } from '../context/SocketContext';
 import { useSettings } from '../context/SettingsContext';
 import { useI18n } from '../i18n';
 import { clockNow, todayStr, addDays, prettyDate, timeSlots } from '../utils/time';
-import { Clock, UtensilsCrossed, CalendarDays, Users, Minus, Plus, MapPin, AlertTriangle, X } from 'lucide-react';
+import { Clock, UtensilsCrossed, CalendarDays, Users, Minus, Plus, MapPin, AlertTriangle, X, Pointer } from 'lucide-react';
 
 export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlobalTable, initialMode = 'book' }) => {
   const { socket } = useSocket();
@@ -196,7 +196,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
             <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
               {/* Hora */}
               <div>
-                <label htmlFor="plan-time" className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold flex items-center gap-1 mb-1">
+                <label htmlFor="plan-time" className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold flex items-center gap-1 mb-1">
                   <Clock className="w-3 h-3" />{t('plan.time')}
                 </label>
                 {slots.length ? (
@@ -214,7 +214,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
               </div>
               {/* Personas */}
               <div>
-                <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold flex items-center gap-1 mb-1">
+                <span className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold flex items-center gap-1 mb-1">
                   <Users className="w-3 h-3" />{t('plan.guestsLabel')}
                 </span>
                 <div className="flex items-center bg-[#121212] border border-stone-700 rounded-xl">
@@ -233,7 +233,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
               {availError ? (
                 <span className="text-red-300">{availError}</span>
               ) : freeCount === null ? (
-                <span className="text-stone-500">{t('plan.loadingAvail')}</span>
+                <span className="text-stone-400">{t('plan.loadingAvail')}</span>
               ) : freeCount === 0 ? (
                 <span className="text-amber-300">{t('plan.noneFree')}</span>
               ) : (
@@ -245,6 +245,11 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
 
         {/* ================= PLANO ================= */}
         <MapLegend mode={mode === 'book' ? 'availability' : 'live'} />
+        {!selected && tables !== null && (
+          <p className="text-xs text-stone-300 flex items-center justify-center gap-1.5">
+            <Pointer className="w-3.5 h-3.5 text-[#C8A45D]" aria-hidden="true" />{t('plan.selectPrompt')}
+          </p>
+        )}
         {tables === null ? (
           <div className="rounded-3xl border border-[#C8A45D]/25 fogon-floor p-12 text-center text-xs text-stone-400 animate-pulse">{t('plan.loading')}</div>
         ) : (
@@ -259,7 +264,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
         )}
 
         {/* Pasos */}
-        <div className="flex items-center justify-center gap-2 text-[11px] text-stone-500">
+        <div className="flex items-center justify-center gap-2 text-[11px] text-stone-400">
           <span className="w-5 h-5 rounded-full bg-[#14281D] border border-[#C8A45D]/60 text-[#C8A45D] flex items-center justify-center font-bold">1</span>
           {t('plan.step1')}
           <span className="w-6 h-px bg-stone-700" />
@@ -326,11 +331,7 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
                 </button>
               )}
             </div>
-          ) : (
-            <div className="pointer-events-none mb-4 mx-auto w-fit bg-black/70 backdrop-blur border border-stone-700 rounded-full px-4 py-2 text-[11px] text-stone-300 shadow-xl fogon-safe-bottom">
-              👆 {t('plan.selectPrompt')}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 

@@ -167,11 +167,11 @@ const PUBLIC_SETTING_KEYS = [
   'restaurantName', 'subtitle', 'currency', 'timezone', 'barPosition', 'bufferMinutes',
   'googleReviewUrl', 'ownerPhone', 'publicPhone', 'email', 'instagram', 'address',
   'postalCode', 'city', 'mapsUrl', 'openingHours', 'openingHours_en', 'legalName', 'nif',
-  'bookingStart', 'bookingEnd'
+  'bookingStart', 'bookingEnd', 'qrLegacyEnabled'
 ];
 const EDITABLE_SETTING_KEYS = [
   ...PUBLIC_SETTING_KEYS, 'soonWindowMinutes', 'reservationDurationMinutes',
-  'printerEnabled', 'printerIp', 'printerPort', 'allowPinLogin', 'qrLegacyEnabled', 'publicUrl'
+  'printerEnabled', 'printerIp', 'printerPort', 'allowPinLogin', 'publicUrl'
 ];
 
 function pick(obj, keys) {

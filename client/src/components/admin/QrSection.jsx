@@ -110,19 +110,19 @@ export const QrSection = ({ tables, setTables, settings, setSettings }) => {
         />
         <span>
           Aceptar también los QR antiguos (solo con el número de mesa) y elegir mesa desde el plano.
-          <span className="block text-[10px] text-stone-500">Desactívalo cuando hayas colocado los QR nuevos en todas las mesas.</span>
+          <span className="block text-[11px] text-stone-400">Desactívalo cuando hayas colocado los QR nuevos en todas las mesas.</span>
         </span>
       </label>
 
       {msg && <p className={msg.ok ? 'text-green-300' : 'text-red-300'} role="status">{msg.text}</p>}
 
-      <ul className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
         {sorted.map(t => (
-          <li key={t.id} className="flex items-center justify-between gap-1 bg-[#121212] border border-stone-800 rounded-lg px-2 py-1.5">
-            <span className="font-bold text-stone-200">Mesa {t.number}</span>
-            <span className="flex gap-2">
-              <button onClick={() => print(t)} className="text-[10px] text-[#E6C687] underline" disabled={busy}>Imprimir</button>
-              <button onClick={() => regenerate(t)} className="text-[10px] text-red-300 underline">Regenerar</button>
+          <li key={t.id} className="flex items-center justify-between gap-2 bg-[#121212] border border-stone-800 rounded-xl pl-3 pr-1.5 py-1.5">
+            <span className="font-bold text-stone-200 whitespace-nowrap">Mesa {t.number}</span>
+            <span className="flex gap-1.5">
+              <button onClick={() => print(t)} className="min-h-[40px] px-3 text-xs font-bold text-[#E6C687] bg-[#1A1A1A] border border-[#C8A45D]/40 rounded-lg disabled:opacity-50" disabled={busy}>Imprimir</button>
+              <button onClick={() => regenerate(t)} className="min-h-[40px] px-3 text-xs font-bold text-red-300 bg-[#1A1A1A] border border-red-900/60 rounded-lg">Regenerar</button>
             </span>
           </li>
         ))}

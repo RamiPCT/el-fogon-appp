@@ -108,7 +108,7 @@ export const TableMap = ({ floor, tables, selectedTableId, onTableClick, mode = 
       {floor ? (
         <FloorPlan floor={floor} tables={tables} renderTable={renderTable} />
       ) : (
-        <div className="p-12 text-center text-xs text-stone-500 animate-pulse">…</div>
+        <div className="p-12 text-center text-xs text-stone-400 animate-pulse">…</div>
       )}
     </div>
   );

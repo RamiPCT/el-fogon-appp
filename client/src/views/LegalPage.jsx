@@ -144,7 +144,7 @@ export const LegalPage = ({ type, onNavigate }) => {
         </>
       )}
 
-      <p className="text-[11px] text-stone-600 pt-6">Última actualización: noviembre de 2026</p>
+      <p className="text-[11px] text-stone-400 pt-6">Última actualización: noviembre de 2026</p>
     </article>
   );
 };

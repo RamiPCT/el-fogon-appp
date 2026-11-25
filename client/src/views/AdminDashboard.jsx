@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocket } from '../context/SocketContext';
-import { Settings, Users, Calendar, Sliders, Save, Plus, Trash2, Phone, MessageSquare, Printer, Check, X, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Clock, Maximize2, ShieldAlert } from 'lucide-react';
+import { Settings, Users, Calendar, Sliders, Save, Plus, Trash2, Phone, MessageSquare, Printer, Check, X, Move, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Clock, Maximize2, ShieldAlert, ClipboardList, Wallet, Map as MapIcon, UtensilsCrossed, History } from 'lucide-react';
 import { DeleteTableModal } from '../components/DeleteTableModal';
 import { FloorPlan, ELEMENT_TYPES } from '../components/FloorPlan';
 import { api, getStaffToken } from '../utils/api';
@@ -24,15 +24,14 @@ export const AdminDashboard = () => {
   const { staff: me, can } = useStaff();
   // Pestañas según los permisos del usuario (el servidor los vuelve a comprobar en cada acción)
   const TABS = [
-    { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && !can('floor.manage') },
-    { id: 'visual_map', label: '🗺️ Plano', show: can('floor.manage') },
-    { id: 'comandera', label: '📝 Comandera', show: can('orders.create') && can('floor.manage') },
-    { id: 'caja', label: '💶 Caja', show: can('cash.manage') },
-    { id: 'reservations', label: '📅 Reservas', show: can('reservations.manage') },
-    { id: 'menu', label: '🍽️ Carta', show: can('menu.manage') || can('menu.availability') },
-    { id: 'team', label: '👥 Equipo', show: can('staff.manage') },
-    { id: 'audit', label: '📜 Historial', show: can('audit.view') },
-    { id: 'settings', label: '⚙️ Ajustes', show: can('settings.manage') }
+    { id: 'comandera', label: 'Comandera', icon: ClipboardList, show: can('orders.create') },
+    { id: 'caja', label: 'Caja', icon: Wallet, show: can('cash.manage') },
+    { id: 'reservations', label: 'Reservas', icon: Calendar, show: can('reservations.manage') },
+    { id: 'visual_map', label: 'Plano', icon: MapIcon, show: can('floor.manage') },
+    { id: 'menu', label: 'Carta', icon: UtensilsCrossed, show: can('menu.manage') || can('menu.availability') },
+    { id: 'team', label: 'Equipo', icon: Users, show: can('staff.manage') },
+    { id: 'audit', label: 'Historial', icon: History, show: can('audit.view') },
+    { id: 'settings', label: 'Ajustes', icon: Settings, show: can('settings.manage') }
   ].filter(t => t.show);
   const [activeTab, setActiveTab] = useState(() => TABS[0]?.id || 'none');
   useEffect(() => {
@@ -510,9 +509,9 @@ export const AdminDashboard = () => {
               <button
                 key={tabDef.id}
                 onClick={() => setActiveTab(tabDef.id)}
-                className={`flex-1 min-w-[30%] sm:min-w-0 py-2 px-2 text-center font-bold rounded-lg transition whitespace-nowrap ${activeTab === tabDef.id ? 'bg-[#C8A45D] text-[#121212] shadow-md' : 'text-stone-300 hover:text-white'}`}
+                className={`flex-1 min-w-[30%] sm:min-w-0 py-2.5 px-2 text-center font-bold rounded-lg transition whitespace-nowrap ${activeTab === tabDef.id ? 'bg-[#C8A45D] text-[#121212] shadow-md' : 'text-stone-300 hover:text-white'}`}
               >
-                {tabDef.label}
+                <span className="inline-flex items-center justify-center gap-1.5"><tabDef.icon className="w-3.5 h-3.5" aria-hidden="true" />{tabDef.label}</span>
               </button>
             ))}
           </div>

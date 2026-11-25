@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { useSettings, waLink, mapsLink } from '../context/SettingsContext';
 import { formatPrice } from '../utils/formatters';
-import { onImgError } from '../utils/images';
+import { DishImage } from '../components/DishImage';
+import { categoryIcon } from '../utils/category';
 import { Flame, UtensilsCrossed, Martini, CalendarDays, MapPin, Clock, Phone, MessageCircle, Star, QrCode, ChevronRight, AtSign } from 'lucide-react';
 
 // Partículas de brasa (posiciones aleatorias fijas durante la visita)
@@ -90,6 +91,7 @@ export const Home = ({ onNavigate }) => {
   const settings = useSettings();
   const embers = useEmbers(28);
   const [featured, setFeatured] = useState([]);
+  const [cats, setCats] = useState([]);
 
   useEffect(() => {
     fetch('/api/menu')
@@ -98,6 +100,7 @@ export const Home = ({ onNavigate }) => {
         const products = (data.products || []).filter(p => p.isAvailable !== false);
         const sorted = [...products].sort((a, b) => (b.badge ? 1 : 0) - (a.badge ? 1 : 0));
         setFeatured(sorted.slice(0, 4));
+        setCats(data.categories || []);
       })
       .catch(() => {});
   }, []);
@@ -106,7 +109,7 @@ export const Home = ({ onNavigate }) => {
   const directions = mapsLink(settings);
   const hours = (lang === 'en' && settings.openingHours_en) || settings.openingHours || '';
   const hoursLines = hours.split('\n').map(l => l.trim()).filter(Boolean);
-  const fullAddress = [settings.address, [settings.postalCode, settings.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const fullAddress = !settings.address ? '' : [settings.address, [settings.postalCode, settings.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 
   const pillars = [
     { icon: Flame, title: t('home.p1Title'), text: t('home.p1Text') },
@@ -115,7 +118,7 @@ export const Home = ({ onNavigate }) => {
   ];
 
   return (
-    <div className="pb-24 sm:pb-8">
+    <div className="pb-8">
 
       {/* ================= HERO ================= */}
       <section className="relative overflow-hidden border-b border-[#C8A45D]/20">
@@ -183,23 +186,34 @@ export const Home = ({ onNavigate }) => {
       </section>
 
       {/* ================= LA CASA ================= */}
-      <section className="max-w-4xl mx-auto px-5 py-12 sm:py-16">
-        <div className="text-center max-w-2xl mx-auto">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#F4EFE6]">{t('home.aboutTitle')}</h2>
-          <div className="w-16 h-px bg-gradient-to-r from-transparent via-[#C8A45D] to-transparent mx-auto my-4" />
-          <p className="text-sm sm:text-base text-stone-300 leading-relaxed">{t('home.aboutText')}</p>
-        </div>
+      <section className="max-w-5xl mx-auto px-5 py-12 sm:py-20">
+        <div className="grid grid-cols-1 md:grid-cols-[1.05fr_1fr] gap-8 md:gap-12 items-center">
+          <figure className="relative rounded-3xl overflow-hidden border border-[#C8A45D]/25 shadow-[0_30px_80px_rgba(0,0,0,0.55)] aspect-[4/3] md:aspect-[1/1]">
+            <picture>
+              <source srcSet="/assets/fachada.webp" type="image/webp" />
+              <img src="/assets/fachada.jpg" alt={t('home.facadeAlt')} loading="lazy" className="w-full h-full object-cover" />
+            </picture>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" aria-hidden="true" />
+            <figcaption className="absolute bottom-3 left-4 text-[10px] tracking-[0.3em] uppercase text-[#E6C687] font-semibold">{settings.city || 'Alicante'}</figcaption>
+          </figure>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-10">
-          {pillars.map(({ icon: Icon, title, text }) => (
-            <div key={title} className="bg-[#1A1A1A] border border-stone-800 hover:border-[#C8A45D]/50 rounded-2xl p-5 text-center transition group">
-              <div className="w-11 h-11 mx-auto rounded-full bg-[#14281D] border border-[#C8A45D]/60 flex items-center justify-center group-hover:scale-110 transition">
-                <Icon className="w-5 h-5 text-[#C8A45D]" />
-              </div>
-              <h3 className="font-display text-base font-bold text-[#C8A45D] mt-3">{title}</h3>
-              <p className="text-xs text-stone-400 mt-1.5 leading-relaxed">{text}</p>
-            </div>
-          ))}
+          <div>
+            <span className="text-[10px] tracking-[0.3em] uppercase text-[#C8A45D] font-semibold">{t('home.aboutKicker')}</span>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold text-[#F4EFE6] mt-2">{t('home.aboutTitle')}</h2>
+            <p className="text-[15px] text-stone-300 leading-relaxed mt-4">{t('home.aboutText')}</p>
+
+            <ul className="mt-7 divide-y divide-stone-800 border-y border-stone-800">
+              {pillars.map(({ icon: Icon, title, text }) => (
+                <li key={title} className="flex items-start gap-4 py-4">
+                  <Icon className="w-5 h-5 text-[#C8A45D] mt-0.5 shrink-0" aria-hidden="true" />
+                  <div>
+                    <h3 className="font-display text-base font-bold text-[#E6C687] leading-tight">{title}</h3>
+                    <p className="text-sm text-stone-300 mt-1 leading-relaxed">{text}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -219,17 +233,17 @@ export const Home = ({ onNavigate }) => {
                 <button
                   key={p.id}
                   onClick={() => onNavigate('/carta')}
-                  className="snap-start shrink-0 w-56 sm:w-auto text-left bg-[#1A1A1A] border border-stone-800 hover:border-[#C8A45D]/60 rounded-2xl overflow-hidden transition group"
+                  className="snap-start shrink-0 w-60 sm:w-auto text-left bg-[#1A1A1A] border border-stone-800 hover:border-[#C8A45D]/60 rounded-2xl overflow-hidden transition group"
                 >
-                  <div className="relative h-36 overflow-hidden bg-stone-900">
-                    <img onError={onImgError} src={p.image} alt={tf(p, 'name')} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                  <div className="relative h-40 overflow-hidden bg-stone-900">
+                    <DishImage src={p.image} alt={tf(p, 'name')} icon={categoryIcon(cats.find(c => c.id === p.categoryId))} iconClassName="w-9 h-9" className="w-full h-full group-hover:scale-105 transition duration-500" />
                     {p.badge && (
                       <span className="absolute top-2 left-2 bg-[#5A1826] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{p.badge}</span>
                     )}
                   </div>
                   <div className="p-3.5">
                     <h3 className="font-display text-sm font-bold text-[#F4EFE6] leading-tight group-hover:text-[#C8A45D] transition">{tf(p, 'name')}</h3>
-                    <p className="text-[11px] text-stone-400 mt-1 line-clamp-2">{tf(p, 'description')}</p>
+                    <p className="text-xs text-stone-300 mt-1 line-clamp-2 leading-relaxed">{tf(p, 'description')}</p>
                     <p className="font-mono text-sm font-bold text-[#C8A45D] mt-2">{formatPrice(p.price)}</p>
                   </div>
                 </button>
@@ -240,7 +254,7 @@ export const Home = ({ onNavigate }) => {
       )}
 
       {/* ================= RESERVA ================= */}
-      <section className="max-w-4xl mx-auto px-5 py-12 sm:py-16">
+      <section className="max-w-5xl mx-auto px-5 py-12 sm:py-16">
         <div className="relative overflow-hidden rounded-3xl border border-[#C8A45D]/40 bg-gradient-to-br from-[#14281D] via-[#121212] to-[#5A1826]/40 p-6 sm:p-10 text-center">
           <img src="/assets/horse-white.png" alt="" className="absolute -right-6 -bottom-6 w-40 opacity-[0.07] pointer-events-none" aria-hidden="true" />
           <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#F4EFE6]">{t('home.bookingTitle')}</h2>
@@ -256,47 +270,45 @@ export const Home = ({ onNavigate }) => {
       </section>
 
       {/* ================= VISÍTANOS ================= */}
-      <section className="max-w-4xl mx-auto px-5 pb-12 sm:pb-16">
+      <section className="max-w-5xl mx-auto px-5 pb-12 sm:pb-16">
         <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#F4EFE6] text-center mb-6">{t('home.visitTitle')}</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-5">
-            <h3 className="font-display text-sm font-bold text-[#C8A45D] flex items-center gap-2">
-              <Clock className="w-4 h-4" /> {t('home.hours')}
-            </h3>
-            {hoursLines.length > 0 ? (
-              <ul className="mt-3 space-y-1.5 text-sm text-stone-300">
+        <div className={`grid grid-cols-1 ${hoursLines.length > 0 ? 'sm:grid-cols-2' : ''} gap-3`}>
+          {hoursLines.length > 0 && (
+            <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-5">
+              <h3 className="font-display text-sm font-bold text-[#C8A45D] flex items-center gap-2">
+                <Clock className="w-4 h-4" /> {t('home.hours')}
+              </h3>
+              <ul className="mt-3 space-y-1.5 text-sm text-stone-200">
                 {hoursLines.map((l, i) => <li key={i}>{l}</li>)}
               </ul>
-            ) : (
-              <p className="mt-3 text-sm text-stone-400">{t('home.hoursPending')}</p>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-5 flex flex-col">
             <h3 className="font-display text-sm font-bold text-[#C8A45D] flex items-center gap-2">
-              <MapPin className="w-4 h-4" /> {t('home.address')}
+              {fullAddress ? <><MapPin className="w-4 h-4" /> {t('home.address')}</> : <><MessageCircle className="w-4 h-4" /> {t('home.contact')}</>}
             </h3>
-            <p className="mt-3 text-sm text-stone-300">{fullAddress || 'Alicante'}</p>
+            <p className="mt-3 text-sm text-stone-200">{fullAddress || t('home.contactText')}</p>
 
             <div className="mt-auto pt-4 flex flex-wrap gap-2">
               {directions && (
-                <a href={directions} target="_blank" rel="noopener noreferrer" className="px-3.5 py-2 bg-[#14281D] hover:bg-[#1c3a29] border border-[#C8A45D]/50 text-[#F4EFE6] text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
+                <a href={directions} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 bg-[#14281D] hover:bg-[#1c3a29] border border-[#C8A45D]/50 text-[#F4EFE6] text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
                   <MapPin className="w-3.5 h-3.5 text-[#C8A45D]" /> {t('home.directions')}
                 </a>
               )}
               {whatsapp && (
-                <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="px-3.5 py-2 bg-[#14281D] hover:bg-[#1c3a29] border border-green-700/60 text-green-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
+                <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 bg-[#14281D] hover:bg-[#1c3a29] border border-green-700/60 text-green-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
                   <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                 </a>
               )}
               {settings.publicPhone && (
-                <a href={`tel:${settings.publicPhone.replace(/\s/g, '')}`} className="px-3.5 py-2 bg-[#121212] hover:bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
+                <a href={`tel:${settings.publicPhone.replace(/\s/g, '')}`} className="px-4 py-2.5 bg-[#121212] hover:bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
                   <Phone className="w-3.5 h-3.5" /> {t('home.call')}
                 </a>
               )}
               {settings.instagram && (
-                <a href={`https://www.instagram.com/${settings.instagram}`} target="_blank" rel="noopener noreferrer" className="px-3.5 py-2 bg-[#121212] hover:bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
+                <a href={`https://www.instagram.com/${settings.instagram}`} target="_blank" rel="noopener noreferrer" className="px-4 py-2.5 bg-[#121212] hover:bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition">
                   <AtSign className="w-3.5 h-3.5" /> @{settings.instagram}
                 </a>
               )}
@@ -311,7 +323,7 @@ export const Home = ({ onNavigate }) => {
             </div>
             <div>
               <h3 className="font-display text-sm font-bold text-[#F4EFE6]">{t('home.inLocalTitle')}</h3>
-              <p className="text-xs text-stone-400 mt-1 leading-relaxed">{t('home.inLocalText')}</p>
+              <p className="text-xs text-stone-300 mt-1 leading-relaxed">{t('home.inLocalText')}</p>
               <button onClick={() => onNavigate('/bienvenido')} className="mt-2.5 text-xs text-[#C8A45D] hover:text-[#E6C687] font-semibold inline-flex items-center gap-1">
                 {t('home.seePlan')} <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -325,7 +337,7 @@ export const Home = ({ onNavigate }) => {
               </div>
               <div>
                 <h3 className="font-display text-sm font-bold text-[#F4EFE6]">{t('home.reviewTitle')}</h3>
-                <p className="text-xs text-stone-400 mt-1 leading-relaxed">{t('home.reviewText')}</p>
+                <p className="text-xs text-stone-300 mt-1 leading-relaxed">{t('home.reviewText')}</p>
                 <a href={settings.googleReviewUrl} target="_blank" rel="noopener noreferrer" className="mt-2.5 text-xs text-[#C8A45D] hover:text-[#E6C687] font-semibold inline-flex items-center gap-1">
                   {t('home.reviewBtn')} <ChevronRight className="w-3.5 h-3.5" />
                 </a>
@@ -335,35 +347,6 @@ export const Home = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* ================= BARRA DE ACCIONES FIJA (MÓVIL) ================= */}
-      <div className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-[#121212]/95 backdrop-blur border-t border-[#C8A45D]/30 px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] grid grid-cols-3 gap-2 text-[11px] font-bold">
-        <button onClick={() => onNavigate('/reservar')} className="py-2.5 bg-[#C8A45D] text-[#121212] rounded-xl flex flex-col items-center gap-0.5">
-          <CalendarDays className="w-4 h-4" />
-          {t('nav.book')}
-        </button>
-        {whatsapp ? (
-          <a href={whatsapp} target="_blank" rel="noopener noreferrer" className="py-2.5 bg-[#14281D] border border-green-700/60 text-green-200 rounded-xl flex flex-col items-center gap-0.5">
-            <MessageCircle className="w-4 h-4" />
-            WhatsApp
-          </a>
-        ) : (
-          <button onClick={() => onNavigate('/carta')} className="py-2.5 bg-[#1A1A1A] border border-stone-700 text-stone-200 rounded-xl flex flex-col items-center gap-0.5">
-            <UtensilsCrossed className="w-4 h-4" />
-            {t('nav.menu')}
-          </button>
-        )}
-        {directions ? (
-          <a href={directions} target="_blank" rel="noopener noreferrer" className="py-2.5 bg-[#1A1A1A] border border-stone-700 text-stone-200 rounded-xl flex flex-col items-center gap-0.5">
-            <MapPin className="w-4 h-4" />
-            {t('home.directions')}
-          </a>
-        ) : (
-          <button onClick={() => onNavigate('/carta')} className="py-2.5 bg-[#1A1A1A] border border-stone-700 text-stone-200 rounded-xl flex flex-col items-center gap-0.5">
-            <UtensilsCrossed className="w-4 h-4" />
-            {t('nav.menu')}
-          </button>
-        )}
-      </div>
     </div>
   );
 };

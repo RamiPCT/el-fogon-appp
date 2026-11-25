@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Minus, Info, X, Check } from 'lucide-react';
 import { formatPrice } from '../utils/formatters';
 import { useI18n } from '../i18n';
-import { onImgError } from '../utils/images';
+import { DishImage } from './DishImage';
+import { cleanName, categoryIcon } from '../utils/category';
 
 // ---------------------------------------------------------------------------
 // Ficha de producto (hoja inferior): foto grande, alérgenos, opciones, notas y cantidad
 // ---------------------------------------------------------------------------
-const ProductSheet = ({ product, canOrder, onClose, onAdd }) => {
+const ProductSheet = ({ product, icon, canOrder, onClose, onAdd }) => {
   const { t, tf, allergenName } = useI18n();
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState('');
@@ -30,7 +31,7 @@ const ProductSheet = ({ product, canOrder, onClose, onAdd }) => {
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="ps-title" onClick={onClose}>
       <div className="fogon-sheet relative bg-[#1A1A1A] border border-[#C8A45D]/40 border-b-0 sm:border-b rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="relative h-52 sm:h-60 bg-stone-900 shrink-0">
-          <img src={product.image} onError={onImgError} alt={tf(product, 'name')} className={`w-full h-full object-cover ${soldOut ? 'grayscale' : ''}`} />
+          <DishImage src={product.image} alt={tf(product, 'name')} icon={icon} soldOut={soldOut} eager className="w-full h-full" iconClassName="w-14 h-14" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1A1A1A] via-transparent to-black/30" />
           <button onClick={onClose} className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center" aria-label={t('common.close')}>
             <X className="w-4 h-4" />
@@ -48,7 +49,7 @@ const ProductSheet = ({ product, canOrder, onClose, onAdd }) => {
           </div>
 
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-1.5">{t('menu.allergens')}</p>
+            <p className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold mb-1.5">{t('menu.allergens')}</p>
             {allergens.length ? (
               <div className="flex flex-wrap gap-1.5">
                 {allergens.map(a => (
@@ -56,7 +57,7 @@ const ProductSheet = ({ product, canOrder, onClose, onAdd }) => {
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-stone-400 flex items-center gap-1"><Info className="w-3.5 h-3.5 text-[#C8A45D]" />{t('menu.allergenAsk')}</p>
+              <p className="text-xs text-stone-300 flex items-center gap-1"><Info className="w-3.5 h-3.5 text-[#C8A45D]" />{t('menu.allergenAsk')}</p>
             )}
           </div>
 
@@ -141,6 +142,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
   const clickScroll = useRef(false);
 
   const visible = categories.filter(c => products.some(p => p.categoryId === c.id));
+  const iconOf = (catId) => categoryIcon(categories.find(c => c.id === catId));
 
   useEffect(() => {
     if (visible.length && !visible.some(c => c.id === active)) setActive(visible[0].id);
@@ -196,7 +198,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
               onClick={() => goTo(cat.id)}
               className={`px-3.5 py-2 rounded-full font-semibold whitespace-nowrap transition ${active === cat.id ? 'bg-[#C8A45D] text-[#121212] shadow-lg' : 'bg-[#1A1A1A] border border-stone-800 text-stone-300'}`}
             >
-              {tf(cat, 'name')}
+              {cleanName(tf(cat, 'name'))}
             </button>
           ))}
         </div>
@@ -207,10 +209,19 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
       )}
 
       {visible.map(cat => (
-        <div key={cat.id} data-cat={cat.id} ref={el => { sectionRefs.current[cat.id] = el; }} className="pt-6">
-          <h3 className="font-display text-lg font-bold text-[#F4EFE6]">{tf(cat, 'name')}</h3>
-          {tf(cat, 'description') && <p className="text-[11px] text-stone-500 mt-0.5">{tf(cat, 'description')}</p>}
-          <div className="mt-3 space-y-2.5">
+        <div key={cat.id} data-cat={cat.id} ref={el => { sectionRefs.current[cat.id] = el; }} className="pt-7">
+          {(() => { const CatIcon = categoryIcon(cat); return (
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-full border border-[#C8A45D]/50 flex items-center justify-center shrink-0" aria-hidden="true">
+                <CatIcon className="w-4 h-4 text-[#C8A45D]" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="font-display text-lg font-bold text-[#F4EFE6] leading-tight">{cleanName(tf(cat, 'name'))}</h3>
+                {tf(cat, 'description') && <p className="text-xs text-stone-400 mt-0.5">{tf(cat, 'description')}</p>}
+              </div>
+            </div>
+          ); })()}
+          <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-2.5">
             {products.filter(p => p.categoryId === cat.id).map(prod => {
               const soldOut = prod.isAvailable === false;
               const allergens = Array.isArray(prod.allergens) ? prod.allergens : [];
@@ -221,7 +232,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
                   className={`relative bg-[#1A1A1A] rounded-2xl border border-stone-800/80 p-2.5 flex gap-3 items-stretch cursor-pointer active:scale-[0.99] transition ${soldOut ? 'opacity-55' : 'hover:border-[#C8A45D]/40'}`}
                 >
                   <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 relative bg-stone-900">
-                    <img src={prod.image} onError={onImgError} alt="" loading="lazy" className={`w-full h-full object-cover ${soldOut ? 'grayscale' : ''}`} />
+                    <DishImage src={prod.image} icon={iconOf(prod.categoryId)} soldOut={soldOut} className="w-full h-full" />
                     {soldOut ? (
                       <span className="absolute inset-x-0 bottom-0 bg-black/75 text-white text-[9px] font-bold text-center py-0.5 uppercase">{t('menu.soldOut')}</span>
                     ) : prod.badge && (
@@ -230,9 +241,9 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
                   </div>
                   <div className="flex-1 min-w-0 flex flex-col py-0.5">
                     <h4 className="font-display text-sm font-bold text-[#F4EFE6] leading-tight">{tf(prod, 'name')}</h4>
-                    <p className="text-[11px] text-stone-400 line-clamp-2 leading-relaxed mt-0.5">{tf(prod, 'description')}</p>
+                    <p className="text-xs text-stone-300 line-clamp-2 leading-relaxed mt-1">{tf(prod, 'description')}</p>
                     {allergens.length > 0 && (
-                      <p className="text-[9px] text-amber-200/70 mt-1 truncate">{allergens.map(allergenName).join(' · ')}</p>
+                      <p className="text-[10px] text-amber-200/80 mt-1 truncate">{allergens.map(allergenName).join(' · ')}</p>
                     )}
                     <div className="mt-auto flex items-center justify-between pt-1">
                       <span className="font-mono text-sm font-bold text-[#C8A45D]">{formatPrice(prod.price)}</span>
@@ -254,7 +265,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
         </div>
       ))}
 
-      <p className="mt-6 text-[11px] text-stone-400 flex items-start gap-1.5 bg-[#1A1A1A] border border-stone-800 rounded-xl p-3">
+      <p className="mt-6 text-xs text-stone-300 flex items-start gap-1.5 bg-[#1A1A1A] border border-stone-800 rounded-xl p-3">
         <Info className="w-3.5 h-3.5 text-[#C8A45D] shrink-0 mt-0.5" />
         <span>{t('menu.allergenNotice')}</span>
       </p>
@@ -263,6 +274,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
         <ProductSheet
           key={openProduct.id}
           product={openProduct}
+          icon={iconOf(openProduct.categoryId)}
           canOrder={canOrder}
           onClose={() => setOpenProduct(null)}
           onAdd={(item) => {

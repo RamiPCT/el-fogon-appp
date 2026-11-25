@@ -31,7 +31,7 @@ const OrderTracker = ({ order, productName }) => {
           const current = i === idx && order.status !== 'SERVED';
           return (
             <React.Fragment key={s}>
-              <span className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 transition ${done ? 'bg-[#C8A45D] border-[#E6C687] text-[#121212]' : 'bg-[#121212] border-stone-700 text-stone-600'} ${current ? 'fogon-pulse-ring' : ''}`}>
+              <span className={`w-7 h-7 rounded-full flex items-center justify-center border shrink-0 transition ${done ? 'bg-[#C8A45D] border-[#E6C687] text-[#121212]' : 'bg-[#121212] border-stone-700 text-stone-500'} ${current ? 'fogon-pulse-ring' : ''}`}>
                 <Icon className="w-3.5 h-3.5" />
               </span>
               {i < STEPS.length - 1 && <span className={`flex-1 h-0.5 mx-1 rounded ${i < idx ? 'bg-[#C8A45D]' : 'bg-stone-800'}`} />}
@@ -244,16 +244,21 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
               </div>
             </div>
             <p className="fogon-fade-up font-script text-[#E6C687] text-2xl mt-3" style={{ animationDelay: '0.2s' }}>{t('order.heroScript')}</p>
-            <p className="text-[11px] text-stone-400 mt-1 max-w-xs mx-auto">{t('order.heroSub')}</p>
-            <button onClick={() => onSelectTableNumber(null)} className="mt-2 text-[10px] text-stone-500 underline">{t('order.change')}</button>
+            <p className="text-xs text-stone-300 mt-1 max-w-xs mx-auto">{t('order.heroSub')}</p>
+            {settings.qrLegacyEnabled !== false && (
+              <button onClick={() => onSelectTableNumber(null)} className="mt-2 text-xs text-stone-400 underline py-1">{t('order.change')}</button>
+            )}
           </div>
         ) : (
           <div className="max-w-md mx-auto px-5 pt-6 pb-6 text-center">
             <span className="text-[10px] tracking-[0.3em] uppercase text-[#C8A45D]/90 font-semibold">El Fogón</span>
             <h1 className="font-script text-[#E6C687] text-4xl mt-1">{t('menu.title')}</h1>
+            {settings.qrLegacyEnabled === false ? (
+              <p className="mt-3 text-xs text-stone-300 max-w-xs mx-auto">{t('order.scanQr')}</p>
+            ) : (
             <div className="mt-4 bg-black/40 border border-[#C8A45D]/30 rounded-2xl p-3.5 text-left">
               <p className="text-xs font-bold text-[#F4EFE6]">{t('order.whichTable')}</p>
-              <p className="text-[11px] text-stone-400 mt-0.5">{t('order.whichTableText')}</p>
+              <p className="text-xs text-stone-300 mt-0.5">{t('order.whichTableText')}</p>
               <div className="grid grid-cols-5 gap-1.5 mt-3">
                 {tablesList.map(tb => (
                   <button
@@ -266,11 +271,12 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
                 ))}
               </div>
             </div>
+            )}
           </div>
         )}
       </AuraHero>
 
-      <div className="max-w-md mx-auto px-3.5 pt-4 space-y-3.5">
+      <div className="max-w-md lg:max-w-4xl mx-auto px-3.5 pt-4 space-y-3.5">
         {/* Aviso de reserva en esta mesa */}
         {tableNumber && res && (
           <div className={`flex items-start gap-2.5 rounded-2xl px-3.5 py-3 border text-xs fogon-pop ${res.soon ? 'bg-amber-950/60 border-amber-500 text-amber-100' : 'bg-amber-950/30 border-amber-800/60 text-amber-200'}`} role="status">
