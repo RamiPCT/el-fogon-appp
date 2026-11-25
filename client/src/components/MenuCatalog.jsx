@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Minus, Info, X, Check } from 'lucide-react';
 import { formatPrice } from '../utils/formatters';
 import { useI18n } from '../i18n';
+import { useSettings } from '../context/SettingsContext';
 import { DishImage } from './DishImage';
 import { cleanName, categoryIcon } from '../utils/category';
 
@@ -10,6 +11,8 @@ import { cleanName, categoryIcon } from '../utils/category';
 // ---------------------------------------------------------------------------
 const ProductSheet = ({ product, icon, canOrder, onClose, onAdd }) => {
   const { t, tf, allergenName } = useI18n();
+  const settings = useSettings();
+  const viewOnlyText = settings.qrLegacyEnabled === false ? t('menu.viewOnlyQr') : t('menu.viewOnly');
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState('');
   const [mods, setMods] = useState(() => {
@@ -106,7 +109,7 @@ const ProductSheet = ({ product, icon, canOrder, onClose, onAdd }) => {
           {soldOut ? (
             <p className="text-center text-sm text-red-300 font-semibold py-2">{t('menu.soldOut')}</p>
           ) : !canOrder ? (
-            <p className="text-center text-xs text-amber-200/90 py-2">{t('menu.viewOnly')}</p>
+            <p className="text-center text-xs text-amber-200/90 py-2">{viewOnlyText}</p>
           ) : (
             <div className="flex items-center gap-3">
               <div className="flex items-center bg-[#121212] border border-stone-700 rounded-xl">
@@ -134,6 +137,8 @@ const ProductSheet = ({ product, icon, canOrder, onClose, onAdd }) => {
 // ---------------------------------------------------------------------------
 export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true }) => {
   const { t, tf, allergenName } = useI18n();
+  const settings = useSettings();
+  const viewOnlyText = settings.qrLegacyEnabled === false ? t('menu.viewOnlyQr') : t('menu.viewOnly');
   const [active, setActive] = useState(null);
   const [openProduct, setOpenProduct] = useState(null);
   const [flash, setFlash] = useState(null);
@@ -205,7 +210,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
       </div>
 
       {!canOrder && (
-        <p className="mt-3 text-[11px] text-amber-200/90 bg-amber-950/30 border border-amber-800/50 rounded-xl px-3 py-2">{t('menu.viewOnly')}</p>
+        <p className="mt-3 text-[11px] text-amber-200/90 bg-amber-950/30 border border-amber-800/50 rounded-xl px-3 py-2">{viewOnlyText}</p>
       )}
 
       {visible.map(cat => (

@@ -152,6 +152,7 @@ const DICT = {
     'menu.allergens': 'Alérgenos',
     'menu.allergenAsk': 'Consulta los alérgenos al personal',
     'menu.allergenNotice': '¿Alergias o intolerancias? Consulta a nuestro equipo antes de pedir.',
+    'menu.viewOnlyQr': 'Para pedir, escanea el código QR de tu mesa.',
     'menu.viewOnly': 'Elige tu mesa arriba para poder pedir.',
     'menu.added': 'Añadido',
 
@@ -383,6 +384,7 @@ const DICT = {
     'menu.allergens': 'Allergens',
     'menu.allergenAsk': 'Ask our staff about allergens',
     'menu.allergenNotice': 'Allergies or intolerances? Please ask our team before ordering.',
+    'menu.viewOnlyQr': 'To order, scan the QR code on your table.',
     'menu.viewOnly': 'Choose your table above to order.',
     'menu.added': 'Added',
 
