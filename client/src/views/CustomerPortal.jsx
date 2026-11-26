@@ -75,7 +75,9 @@ export const CustomerPortal = ({ onGoToTable, currentSelectedTable, onSelectGlob
     fetchTables();
     fetch('/api/floor').then(r => r.json()).then(setFloor).catch(() => {});
     const iv = setInterval(() => setCurrentTime(clockNow()), 15000);
-    return () => clearInterval(iv);
+    // Red de seguridad: aunque se pierda algún aviso en tiempo real, el plano se pone al día solo
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') fetchTables(); }, 15000);
+    return () => { clearInterval(iv); clearInterval(poll); };
   }, [fetchTables]);
 
   useEffect(() => {

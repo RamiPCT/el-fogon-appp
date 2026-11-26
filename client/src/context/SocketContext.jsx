@@ -27,10 +27,28 @@ export const SocketProvider = ({ children }) => {
     };
     window.addEventListener('auth:changed', handleAuthChange);
 
+    // Los móviles congelan la pestaña al bloquear la pantalla o cambiar de app y la conexión
+    // puede quedar muerta sin avisar. Al volver, se reconecta y cada pantalla recarga sus datos.
+    let hiddenAt = 0;
+    const resync = () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (!newSocket.connected || Date.now() - hiddenAt > 3000) {
+        newSocket.disconnect();
+        newSocket.connect();
+      }
+    };
+    const onOnline = () => { newSocket.disconnect(); newSocket.connect(); };
+    document.addEventListener('visibilitychange', resync);
+    window.addEventListener('pageshow', resync);
+    window.addEventListener('online', onOnline);
+
     setSocket(newSocket);
 
     return () => {
       window.removeEventListener('auth:changed', handleAuthChange);
+      document.removeEventListener('visibilitychange', resync);
+      window.removeEventListener('pageshow', resync);
+      window.removeEventListener('online', onOnline);
       newSocket.close();
     };
   }, []);

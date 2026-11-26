@@ -99,6 +99,9 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
     setOrders([]);
     setTableInfo(null);
     if (tableNumber) loadTable(tableNumber);
+    // Red de seguridad: la comanda compartida se pone al día sola aunque se pierda algún aviso
+    const poll = setInterval(() => { if (tableNumber && document.visibilityState === 'visible') loadTable(tableNumber); }, 15000);
+    return () => clearInterval(poll);
   }, [tableNumber, loadTable]);
 
   // ---------- Tiempo real ----------
