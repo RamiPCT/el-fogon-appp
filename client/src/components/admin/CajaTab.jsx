@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../utils/api';
+import { useSocket } from '../../context/SocketContext';
 import { eur, printTicketText } from '../../utils/money';
 import { useStaff } from '../../hooks/useStaff';
 import { CheckPanel } from './CheckPanel';
@@ -57,6 +58,20 @@ export const CajaTab = () => {
     } catch (err) { setMsg({ ok: false, text: err.message }); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tiempo real: cobros, cuentas y caja hechos desde otros dispositivos
+  const { socket } = useSocket();
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!socket) return;
+    let timer = null;
+    const soon = () => { clearTimeout(timer); timer = setTimeout(() => loadRef.current(), 400); };
+    const events = ['check:update', 'cash:update', 'order:new', 'connect'];
+    events.forEach(e => socket.on(e, soon));
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') loadRef.current(); }, 20000);
+    return () => { events.forEach(e => socket.off(e, soon)); clearTimeout(timer); clearInterval(poll); };
+  }, [socket]);
 
   const run = async (fn, okText) => {
     setMsg(null);

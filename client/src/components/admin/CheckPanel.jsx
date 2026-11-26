@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../utils/api';
+import { useSocket } from '../../context/SocketContext';
 import { eur, newKey, printTicketText } from '../../utils/money';
 import { useStaff } from '../../hooks/useStaff';
 import { PRINT_STATUS } from './PrinterTest';
@@ -209,11 +210,21 @@ export const CheckPanel = ({ tableNumber, checkId, onClosed }) => {
     load();
     if (can('payments.take')) api('/api/cash/current').then(c => setCashOpen(!!c)).catch(() => {});
   }, [tableNumber, checkId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Refrescar si alguien añade pedidos o cobra desde otro dispositivo
+  // Refrescar al momento si alguien añade pedidos o cobra desde otro dispositivo (y cada 8 s por si acaso)
+  const { socket } = useSocket();
+  const loadRef = useRef(load);
+  loadRef.current = load;
   useEffect(() => {
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
-  }, [tableNumber, checkId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const t = setInterval(() => loadRef.current(), 8000);
+    if (!socket) return () => clearInterval(t);
+    let timer = null;
+    const soon = () => { clearTimeout(timer); timer = setTimeout(() => loadRef.current(), 300); };
+    const onCash = () => { if (can('payments.take')) api('/api/cash/current').then(c => setCashOpen(!!c)).catch(() => {}); };
+    const events = ['check:update', 'order:new', 'order:update', 'connect'];
+    events.forEach(e => socket.on(e, soon));
+    socket.on('cash:update', onCash);
+    return () => { clearInterval(t); clearTimeout(timer); events.forEach(e => socket.off(e, soon)); socket.off('cash:update', onCash); };
+  }, [socket, tableNumber, checkId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!check) {
     return <div className="bg-[#1A1A1A] border border-stone-800 rounded-2xl p-3 text-xs text-stone-400">{msg ? msg.text : 'Sin cuenta abierta en esta mesa.'}</div>;

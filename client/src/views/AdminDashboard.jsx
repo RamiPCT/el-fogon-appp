@@ -10,6 +10,7 @@ import { ReservationsTab } from '../components/admin/ReservationsTab';
 import { MenuTab } from '../components/admin/MenuTab';
 import { SettingsTab } from '../components/admin/SettingsTab';
 import { ReservationAlerts } from '../components/ReservationAlerts';
+import { CallAlerts } from '../components/CallAlerts';
 import { TeamTab } from '../components/admin/TeamTab';
 import { AuditTab } from '../components/admin/AuditTab';
 import { QrSection } from '../components/admin/QrSection';
@@ -220,7 +221,10 @@ export const AdminDashboard = () => {
     socket.on('table:status_update', refreshTables);
     socket.on('floor:update', onLayout);
     socket.on('connect', onConnect);
+    // Las reservas que se acercan cambian el estado de las mesas con el paso del tiempo
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') refreshTables(); }, 20000);
     return () => {
+      clearInterval(poll);
       socket.off('reservation:new', onReservation);
       socket.off('reservation:cancelled', onReservation);
       socket.off('table:status_update', refreshTables);
@@ -489,10 +493,10 @@ export const AdminDashboard = () => {
         <div className="flex justify-between items-center">
           <div>
             <span className="text-[10px] font-mono text-[#C8A45D] uppercase tracking-wider">
-              Consola del Dueño
+              {can('settings.manage') ? 'Consola del dueño' : 'Panel del personal'}
             </span>
             <h2 className="font-display text-base font-bold text-[#F4EFE6]">
-              Gestor de Salón y Plano
+              {can('settings.manage') ? 'Gestión del local' : 'Sala y comandas'}
             </h2>
           </div>
           <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -524,6 +528,7 @@ export const AdminDashboard = () => {
         </div>
       )}
 
+      {can('calls.manage') && <CallAlerts />}
       <ReservationAlerts />
 
       {loadErrors.length > 0 && (

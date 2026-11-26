@@ -56,6 +56,7 @@ const CSP = [
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
   "connect-src 'self' ws: wss:",
+  "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -336,6 +337,7 @@ app.put('/api/tables/:id', P('tables.status'), (req, res) => {
   if (['AVAILABLE', 'OCCUPIED'].includes(req.body?.status)) updates.status = req.body.status;
   if (req.body?.capacity !== undefined) updates.capacity = Math.max(1, Math.min(30, parseInt(req.body.capacity, 10) || 1));
 
+  const openBefore = prev ? openOrderIdsOf(prev) : [];
   // No se libera una mesa con una cuenta sin cobrar
   if (updates.status === 'AVAILABLE' && prev) {
     const open = sales.checkForTable(prev);
@@ -349,7 +351,10 @@ app.put('/api/tables/:id', P('tables.status'), (req, res) => {
   if (!updated) return res.status(404).json({ error: 'Mesa no encontrada' });
 
   // Al liberar una mesa, se cierra su cuenta (las comandas servidas dejan de sumar)
-  if (updates.status === 'AVAILABLE') db.closeServedOrders(updated);
+  if (updates.status === 'AVAILABLE') {
+    db.closeServedOrders(updated);
+    emitClosedOrders(openBefore.filter(id => db.getOrders().find(o => o.id === id)?.status === 'CLOSED'));
+  }
 
   audit(req, 'table.update', { entity: 'table', entityId: updated.number, before: prev && { status: prev.status, capacity: prev.capacity }, after: updates });
   broadcastTable(updated);
@@ -916,7 +921,8 @@ app.get('/api/availability', (req, res) => {
     return res.status(400).json({ error: 'Esa hora ya ha pasado. Elige otra.' });
   }
   const dur = settings.reservationDurationMinutes || 120;
-  const soonNow = date === today && start - time.nowMinutes(zone) < 60;
+  // Para hoy, una mesa ocupada ahora no se puede reservar si la reserva empieza antes de que se libere
+  const soonNow = date === today && start - time.nowMinutes(zone) < Math.min(dur, 120);
 
   const tables = db.getTables().map(t => {
     const clash = db.getReservations().find(r =>
@@ -1077,8 +1083,20 @@ const salesError = (res, err) => {
   return res.status(500).json({ error: 'Error interno. No se ha guardado nada.' });
 };
 
+// Comandas recién cerradas → se quitan de los móviles de la mesa y de cocina
+function emitClosedOrders(ids) {
+  for (const id of ids) {
+    const o = db.getOrders().find(x => x.id === id);
+    if (o) io.to('staff').to(`table:${o.tableNumber}`).emit('order:update', o);
+  }
+}
+const openOrderIdsOf = (tbl) => db.getOrders()
+  .filter(o => (o.tableId === tbl.id || o.tableNumber === tbl.number) && o.status !== 'CLOSED')
+  .map(o => o.id);
+
 // Al cobrar la cuenta completa: liberar la mesa y avisar a todos
 function onCheckPaid(check, freeTable) {
+  emitClosedOrders(db.getOrders().filter(o => o.checkId === check.id && o.status === 'CLOSED').map(o => o.id));
   if (freeTable) {
     const t = db.updateTable(check.table_id, { status: 'AVAILABLE' });
     if (t) broadcastTable(t);

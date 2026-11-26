@@ -52,6 +52,9 @@ export const KdsDisplay = () => {
   useEffect(() => {
     fetchOrders();
     fetchCalls();
+    // Red de seguridad por si se pierde algún aviso en tiempo real
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') { fetchOrders(); fetchCalls(); } }, 20000);
+    return () => clearInterval(poll);
   }, []);
 
   // Escuchar nuevas órdenes en tiempo real y emitir sonido de campanilla
