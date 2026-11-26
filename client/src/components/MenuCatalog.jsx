@@ -135,7 +135,7 @@ const ProductSheet = ({ product, icon, canOrder, onClose, onAdd }) => {
 // ---------------------------------------------------------------------------
 // Carta continua con categorías fijas (scroll-spy)
 // ---------------------------------------------------------------------------
-export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true }) => {
+export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true, showViewOnlyNotice = true }) => {
   const { t, tf, allergenName } = useI18n();
   const settings = useSettings();
   const viewOnlyText = settings.qrLegacyEnabled === false ? t('menu.viewOnlyQr') : t('menu.viewOnly');
@@ -209,7 +209,7 @@ export const MenuCatalog = ({ categories, products, onAddToCart, canOrder = true
         </div>
       </div>
 
-      {!canOrder && (
+      {!canOrder && showViewOnlyNotice && (
         <p className="mt-3 text-[11px] text-amber-200/90 bg-amber-950/30 border border-amber-800/50 rounded-xl px-3 py-2">{viewOnlyText}</p>
       )}
 

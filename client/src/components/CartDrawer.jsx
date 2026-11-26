@@ -3,7 +3,7 @@ import { Plus, Minus, Send, Flame, X } from 'lucide-react';
 import { formatPrice } from '../utils/formatters';
 import { useI18n } from '../i18n';
 
-export const CartDrawer = ({ cart, onUpdateQuantity, onSendOrder, tableNumber, isSubmitting }) => {
+export const CartDrawer = ({ cart, onUpdateQuantity, onSendOrder, tableNumber, isSubmitting, error = '' }) => {
   const { t, tf } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -111,6 +111,10 @@ export const CartDrawer = ({ cart, onUpdateQuantity, onSendOrder, tableNumber, i
                 <span className="text-stone-300 font-medium">{t('cart.total')}</span>
                 <span className="font-mono text-base font-bold text-[#C8A45D]">{formatPrice(total)}</span>
               </div>
+
+              {error && (
+                <p className="text-xs text-red-200 bg-red-950/50 border border-red-800/70 rounded-xl px-3 py-2.5" role="alert">{error}</p>
+              )}
 
               <button
                 onClick={handleConfirmOrder}

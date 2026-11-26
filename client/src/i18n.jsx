@@ -127,6 +127,7 @@ const DICT = {
 
     'order.whichTable': '¿En qué mesa estás?',
     'order.whichTableText': 'Elige tu mesa para pedir desde el móvil y ver la comanda compartida.',
+    'order.needQr': 'Para pedir o llamar al camarero desde el móvil, escanea el código QR que hay en tu mesa.',
     'order.scanQr': 'Para pedir, escanea el código QR de tu mesa. Aquí puedes ver la carta completa.',
     'order.browse': '¿Solo quieres ver la carta? Desliza hacia abajo.',
     'order.shared': 'Consumo compartido de la mesa',
@@ -359,6 +360,7 @@ const DICT = {
 
     'order.whichTable': 'Which table are you at?',
     'order.whichTableText': 'Choose your table to order from your phone and see the shared tab.',
+    'order.needQr': 'To order or call a waiter from your phone, scan the QR code on your table.',
     'order.scanQr': 'To order, scan the QR code on your table. Here you can browse the full menu.',
     'order.browse': 'Just browsing? Scroll down for the menu.',
     'order.shared': 'Shared table tab',

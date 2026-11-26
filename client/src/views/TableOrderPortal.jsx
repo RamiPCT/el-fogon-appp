@@ -6,7 +6,7 @@ import { AuraHero } from '../components/Embers';
 import { useSocket } from '../context/SocketContext';
 import { useSettings } from '../context/SettingsContext';
 import { useI18n } from '../i18n';
-import { api } from '../utils/api';
+import { api, getStaffInfo } from '../utils/api';
 import { getTableKey, tableKeyHeaders } from '../utils/tableKey';
 import { formatPrice } from '../utils/formatters';
 import { BellRing, Receipt, Clock, ChefHat, CircleCheck, GlassWater, AlertTriangle, ChevronDown, Check } from 'lucide-react';
@@ -227,6 +227,8 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
   const productName = (item) => tf(products.find(p => p.id === item.productId || p.name === item.name) || item, 'name') || item.name;
   const total = orders.reduce((s, o) => s + (o.total || 0), 0);
   const activeOrders = orders.filter(o => o.status !== 'SERVED');
+  // Sin la clave del QR de esta mesa (y con los QR antiguos desactivados) solo se puede ver la carta
+  const hasAccess = !!tableNumber && (settings.qrLegacyEnabled !== false || !!getTableKey(tableNumber) || !!getStaffInfo());
   const visibleOrders = showAllOrders ? orders : (activeOrders.length ? activeOrders : orders.slice(0, 1));
   const res = tableInfo?.nextReservation;
 
@@ -285,8 +287,15 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
           </div>
         )}
 
+        {tableNumber && !hasAccess && (
+          <p className="text-xs text-amber-100 bg-amber-950/50 border border-amber-700/70 rounded-2xl px-3.5 py-3 flex items-start gap-2" role="status">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            {t('order.needQr')}
+          </p>
+        )}
+
         {/* Acciones rápidas */}
-        {tableNumber && (
+        {hasAccess && (
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               {[['waiter', BellRing, t('call.waiter')], ['bill', Receipt, t('call.bill')]].map(([type, Icon, label]) => {
@@ -339,10 +348,10 @@ export const TableOrderPortal = ({ tableNumber, onSelectTableNumber }) => {
         {sendError && <p className="text-xs text-red-300 bg-red-950/40 border border-red-900/60 rounded-xl p-3" role="alert">{sendError}</p>}
         {cartNotice && <p className="text-xs text-amber-200 bg-amber-950/40 border border-amber-800/60 rounded-xl p-3" role="status">{cartNotice}</p>}
 
-        <MenuCatalog categories={categories} products={products} canOrder={!!tableNumber} onAddToCart={handleAddToCart} />
+        <MenuCatalog categories={categories} products={products} canOrder={hasAccess} showViewOnlyNotice={!tableNumber} onAddToCart={handleAddToCart} />
       </div>
 
-      <CartDrawer cart={cart} tableNumber={tableNumber || '—'} onUpdateQuantity={handleUpdateQuantity} onSendOrder={handleSendOrder} isSubmitting={isSubmitting} />
+      <CartDrawer cart={cart} tableNumber={tableNumber || '—'} onUpdateQuantity={handleUpdateQuantity} onSendOrder={handleSendOrder} isSubmitting={isSubmitting} error={sendError} />
     </div>
   );
 };
