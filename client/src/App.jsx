@@ -207,6 +207,15 @@ function AppShell() {
               <span>{t('footer.logout')}</span>
             </button>
           )}
+
+          <a
+            href="https://celere-digital-studio.vercel.app/?utm_source=elfogon&utm_medium=footer"
+            target="_blank"
+            rel="noopener"
+            className="mt-1 text-[11px] text-stone-400 hover:text-[#C8A45D] transition"
+          >
+            {t('footer.madeBy')} <span className="font-semibold tracking-wide text-stone-300">CÉLERE // Digital Studio</span>
+          </a>
         </footer>
       )}
 

@@ -59,6 +59,7 @@ const DICT = {
     'home.bookingTitle': 'Reserva en un minuto',
     'home.bookingText': 'Elige tu mesa en el plano del salón y confirma por WhatsApp. Sin registros ni esperas.',
 
+    'footer.madeBy': 'Web diseñada y desarrollada por',
     'footer.legal': 'Aviso legal',
     'footer.privacy': 'Privacidad',
     'footer.cookies': 'Cookies',
@@ -292,6 +293,7 @@ const DICT = {
     'home.bookingTitle': 'Book in a minute',
     'home.bookingText': 'Pick your table on the floor plan and confirm on WhatsApp. No sign-up, no waiting.',
 
+    'footer.madeBy': 'Website designed and built by',
     'footer.legal': 'Legal notice',
     'footer.privacy': 'Privacy',
     'footer.cookies': 'Cookies',
